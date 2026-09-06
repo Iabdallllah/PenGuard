@@ -3,12 +3,12 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 
 // ─────────────────────────────────────────────────────────────
-// BRAND: penguard — Security Operations Center
-// Project renamed from VANGUARD → penguard
+// BRAND: PENGUARD — Security Operations Center
+// Project renamed from VANGUARD → PENGUARD (capital as before)
 // ─────────────────────────────────────────────────────────────
 const BRAND = {
-  name: "penguard",
-  wordmark: "penguard",
+  name: "PENGUARD",
+  wordmark: "PENGUARD",
   tagline: "Security Operations Center",
   descriptor: "Continuous Security Operations",
   reportFilename: "penguard-audit-report.pdf",
