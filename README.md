@@ -1,6 +1,6 @@
-# Purple Web: Autonomous Penetration & Hardening System
+# PenGuard: Autonomous Purple Team Platform
 
-Purple Web is an enterprise-grade, closed-loop cyber resilience platform. Operating via an autonomous 4-agent architecture (2 Red + 2 Blue), it emulates targeted attacks against web applications, detects security violations in real-time, dynamically injects zero-downtime runtime mitigations into isolated Docker environments, and verifies remediation through automated re-testing.
+PenGuard (formerly Purple Web) is an enterprise-grade, closed-loop cyber resilience platform. Operating via an autonomous 4-agent architecture (2 Red + 2 Blue), it emulates targeted attacks against web applications, detects security violations in real-time, dynamically injects zero-downtime runtime mitigations into isolated Docker environments, and verifies remediation through automated re-testing.
 
 ---
 
@@ -107,7 +107,7 @@ Purple Web is an enterprise-grade, closed-loop cyber resilience platform. Operat
 ## Project Structure
 
 ```text
-purple-web/
+PenGuard/
 ├── api_server.py           # FastAPI orchestrator server & compliance reporting engine
 ├── orchestrator.py         # LangGraph multi-agent execution workflow (2 Red + 2 Blue)
 ├── sandbox_manager.py      # Docker SDK client managing ephemeral sandbox life cycles
@@ -117,7 +117,7 @@ purple-web/
 │   ├── Dockerfile          # Containerized sandbox environment definition
 │   ├── target_app.py       # Vulnerable target web app with dynamic mitigation gates
 │   └── requirements.txt    # Sandbox runtime dependencies
-└── dashboard/              # Next.js 14 telemetry & control UI
+└── dashboard/              # Next.js 16 telemetry & control UI (VANGUARD SOC)
     ├── src/app/page.tsx    # Real-time metrics, execution inspector, and trend graphs
     └── package.json
 ```
@@ -136,8 +136,8 @@ purple-web/
 ### 1. Environment Setup
 
 ```bash
-git clone [https://github.com/your-username/purple-web.git](https://github.com/your-username/purple-web.git)
-cd purple-web
+git clone https://github.com/Iabdallllah/PenGuard.git
+cd PenGuard
 
 python3 -m venv venv
 source venv/bin/activate
