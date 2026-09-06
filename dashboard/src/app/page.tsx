@@ -666,7 +666,6 @@ export default function Dashboard() {
                 {[
                   { label: "Command Center", icon: Icon.Shield, desc: "Live posture & fleet" },
                   { label: "Attack Ledger", icon: Icon.Activity, desc: "All episodes" },
-                  { label: "Agent Fleet", icon: Icon.Layers, badge: "3 active" },
                   { label: "Findings", icon: Icon.Alert, badge: activeThreats ? `${activeThreats}` : undefined },
                 ].map((item) => {
                   const ItemIcon = item.icon;
@@ -734,56 +733,6 @@ export default function Dashboard() {
                           {item.badge}
                         </span>
                       )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              {!isCollapsed && (
-                <div className="px-3 mb-2 text-[10px] font-bold tracking-[0.14em] text-slate-500 uppercase">Governance</div>
-              )}
-              <div className="space-y-1">
-                {[
-                  { label: "Compliance Reports", icon: Icon.External },
-                  { label: "Integrations", icon: Icon.Target },
-                  { label: "Settings", icon: Icon.Clock },
-                ].map((item) => {
-                  const ItemIcon = item.icon;
-                  const isGovActive = activeNav === item.label;
-                  if (isCollapsed) {
-                    return (
-                      <div key={item.label} className="relative group flex justify-center">
-                        <button
-                          type="button"
-                          aria-label={item.label}
-                          onClick={() => handleNavClick(item.label)}
-                          className={cn(
-                            "w-11 h-11 grid place-items-center rounded-xl border transition-colors cursor-pointer",
-                            isGovActive ? "bg-[#0E1626] text-cyan-300 border-[#1E293B]" : "text-slate-500 hover:text-slate-300 hover:bg-[#0E1626] border-transparent hover:border-[#1E293B]"
-                          )}
-                        >
-                          <ItemIcon className="w-5 h-5" />
-                        </button>
-                        <div className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 -translate-y-1/2 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 z-50">
-                          <div className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-[#0E1626] border border-[#1E293B] shadow-xl text-xs font-semibold text-slate-200">{item.label}</div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      type="button"
-                      key={item.label}
-                      onClick={() => handleNavClick(item.label)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer text-left border",
-                        isGovActive ? "bg-[#0E1626] text-cyan-300 border-[#1E293B]" : "text-slate-500 hover:text-slate-300 hover:bg-slate-900/60 border-transparent"
-                      )}
-                    >
-                      <ItemIcon className="w-4 h-4" />
-                      <span className="text-[13px] font-medium">{item.label}</span>
                     </button>
                   );
                 })}
