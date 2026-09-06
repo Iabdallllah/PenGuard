@@ -3,18 +3,15 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 
 // ─────────────────────────────────────────────────────────────
-// BRAND: VANGUARD — Security Operations Center
-// Naming: generic, professional, enterprise-grade. No logos.
-// Reflects autonomous continuous security operations without
-// mythological or playful connotations.
-// Previous branding retired -> VANGUARD (Active)
+// BRAND: penguard — Security Operations Center
+// Project renamed from VANGUARD → penguard
 // ─────────────────────────────────────────────────────────────
 const BRAND = {
-  name: "VANGUARD",
-  wordmark: "VANGUARD",
+  name: "penguard",
+  wordmark: "penguard",
   tagline: "Security Operations Center",
   descriptor: "Continuous Security Operations",
-  reportFilename: "vanguard-audit-report.pdf",
+  reportFilename: "penguard-audit-report.pdf",
 };
 
 // Integration: use relative proxy via Next rewrites by default to avoid CORS (localhost vs 127.0.0.1)
