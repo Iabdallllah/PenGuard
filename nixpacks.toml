@@ -1,0 +1,12 @@
+# Fallback builder if Dockerfile not used (Nixpacks)
+[phases.setup]
+nixPkgs = ["python311", "nodejs_20"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt", "cd dashboard && npm install"]
+
+[phases.build]
+cmds = ["cd dashboard && npm run build"]
+
+[start]
+cmd = "/app/start.sh"
