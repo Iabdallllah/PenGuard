@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+.next/
+out/
+*.log
+npm-debug.log*
+
+# Chroma & data (ephemeral - Railway/Render filesystem resets)
+chroma_db/
+episodes_store.json
+*.sqlite3
+*.db
+
+# Env
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.pdf
+!purple-web-executive-audit-report.pdf
