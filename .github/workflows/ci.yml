@@ -1,0 +1,37 @@
+name: PenGuard CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile api_server.py orchestrator.py sandbox_manager.py memory_manager.py target_app.py
+      - name: Start API + Target
+        run: |
+          nohup python -m uvicorn target_app:app --host 127.0.0.1 --port 8001 &
+          nohup python -m uvicorn api_server:app --host 127.0.0.1 --port 8000 &
+          sleep 5
+          curl -s http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
+          curl -s -X POST http://127.0.0.1:8000/api/episodes/run -H "Content-Type: application/json" -d '{"scenario":"idor"}' | grep -q '"status":"complete"'
+          curl -s http://127.0.0.1:8000/api/episodes | grep -q '"attack_type"'
+
+  dashboard-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: cd dashboard && npm install && npm run build

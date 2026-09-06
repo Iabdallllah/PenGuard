@@ -6,14 +6,23 @@ import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestrator import app_graph, sandbox
 
-app = FastAPI(title="Purple Web Engine API")
+app = FastAPI(title="PenGuard Engine API")
+
+# Prometheus metrics — always exposed at /metrics (free, no env needed)
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator(should_group_status_codes=False, should_ignore_untemplated=True).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    print("[metrics] Prometheus /metrics enabled")
+except Exception as _e:
+    print(f"[metrics] instrumentator not enabled: {_e}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,21 +58,25 @@ def _save_episodes():
 episodes_db: List[Dict[str, Any]] = _load_episodes()
 
 # ── Scenario normalization (UI ↔ orchestrator) ──
-# UI uses: idor, sql_injection, business_logic
-# Orchestrator vulnerability_target: IDOR, SQL Injection, Business Logic Abuse
+# UI uses: idor, sql_injection, business_logic, xss
+# Orchestrator vulnerability_target: IDOR, SQL Injection, Business Logic Abuse, XSS
 VULN_TO_SCENARIO = {
     "idor": "idor",
     "sql injection": "sql_injection",
     "sql_injection": "sql_injection",
     "business logic abuse": "business_logic",
     "business_logic": "business_logic",
+    "xss": "xss",
+    "cross site scripting": "xss",
+    "cross-site scripting": "xss",
 }
 SCENARIO_TO_LABEL = {
     "idor": "IDOR",
     "sql_injection": "SQL Injection",
     "business_logic": "Business Logic Abuse",
+    "xss": "XSS",
 }
-ALLOWED_SCENARIOS = {"idor", "sql_injection", "business_logic"}
+ALLOWED_SCENARIOS = {"idor", "sql_injection", "business_logic", "xss"}
 # Production: TARGET_URL env (e.g. https://purple-target.onrender.com) or fallback to local TARGET_PORT
 TARGET_URL_ENV = os.getenv("TARGET_URL", "").strip()
 TARGET_PORT_ENV = os.getenv("TARGET_PORT", "8001")
@@ -131,6 +144,7 @@ def list_scenarios():
         {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
         {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
         {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
+        {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021"},
     ]
 
 @app.get("/api/episodes")
@@ -143,6 +157,39 @@ def get_episode(episode_id: str):
         if ep["id"] == episode_id:
             return ep
     raise HTTPException(status_code=404, detail="Episode not found")
+
+# WebSocket real-time — replaces 5s polling when available
+connected_ws: set = set()
+
+@app.websocket("/ws/episodes")
+async def ws_episodes(ws: WebSocket):
+    await ws.accept()
+    connected_ws.add(ws)
+    try:
+        await ws.send_json(episodes_db)
+        while True:
+            await asyncio.sleep(30)
+            # keepalive
+            try:
+                await ws.send_json({"type": "ping", "count": len(episodes_db)})
+            except Exception:
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        connected_ws.discard(ws)
+
+async def broadcast_episodes():
+    dead = set()
+    for ws in list(connected_ws):
+        try:
+            await ws.send_json(episodes_db)
+        except Exception:
+            dead.add(ws)
+    for ws in dead:
+        connected_ws.discard(ws)
 
 @app.get("/api/reports/compliance")
 def get_compliance_report():
@@ -295,6 +342,10 @@ async def trigger_run(payload: RunRequest):
 
         episodes_db.append(record)
         _save_episodes()
+        try:
+            await broadcast_episodes()
+        except Exception:
+            pass
 
         if used_sandbox:
             try:

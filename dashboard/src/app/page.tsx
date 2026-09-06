@@ -25,16 +25,17 @@ function apiUrl(path: string) {
 }
 const API_DISPLAY = API_BASE || "/api";
 
-// Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic)
+// Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic/xss)
 // but legacy records or raw vulnerability_target like "SQL Injection" are mapped for UI rendering
 function normalizeAttackKey(raw: string): ScenarioKey | null {
   if (!raw) return null;
-  const k = raw.trim().toLowerCase().replace(/\s+/g, "_");
+  const k = raw.trim().toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
   if (k === "idor") return "idor";
-  if (k === "sql_injection" || k === "sql_injection" || k === "sql_injection" || raw.toLowerCase() === "sql injection") return "sql_injection";
+  if (k === "sql_injection" || raw.toLowerCase() === "sql injection") return "sql_injection";
   if (k === "business_logic_abuse" || k === "business_logic" || raw.toLowerCase() === "business logic abuse") return "business_logic";
+  if (k === "xss" || k === "cross_site_scripting" || raw.toLowerCase().includes("cross") || raw.toLowerCase() === "xss") return "xss";
   // already correct keys
-  if (raw === "idor" || raw === "sql_injection" || raw === "business_logic") return raw as ScenarioKey;
+  if (raw === "idor" || raw === "sql_injection" || raw === "business_logic" || raw === "xss") return raw as ScenarioKey;
   return null;
 }
 
@@ -60,7 +61,7 @@ interface Episode {
   response_body?: string;
 }
 
-type ScenarioKey = "idor" | "sql_injection" | "business_logic";
+type ScenarioKey = "idor" | "sql_injection" | "business_logic" | "xss";
 
 const SCENARIOS: Record<
   ScenarioKey,
@@ -86,6 +87,13 @@ const SCENARIOS: Record<
     owasp: "A04:2021",
     severity: "medium",
     desc: "Workflow & state manipulation",
+  },
+  xss: {
+    label: "Cross-Site Scripting (XSS)",
+    short: "XSS",
+    owasp: "A03:2021",
+    severity: "critical",
+    desc: "Reflected script injection",
   },
 };
 
@@ -410,8 +418,77 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchEpisodes();
-    const id = setInterval(fetchEpisodes, 5000);
-    return () => clearInterval(id);
+    // Real-time via WebSocket with polling fallback
+    let ws: WebSocket | null = null;
+    let pollId: any = setInterval(fetchEpisodes, 5000);
+    let wsAlive = false;
+
+    const getWsUrl = () => {
+      try {
+        if (API_BASE) {
+          return `${API_BASE.replace(/^http/, "ws")}/ws/episodes`;
+        }
+        // For Vercel production, NEXT_PUBLIC_API_BASE is https://heroic-insight...
+        // For local relative proxy, fallback to direct 8000
+        if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+          // On Vercel, try to derive from page origin is vercel.app, not api, so use direct api fallback
+          return "wss://heroic-insight-production-d97d.up.railway.app/ws/episodes";
+        }
+        return "ws://127.0.0.1:8000/ws/episodes";
+      } catch {
+        return "ws://127.0.0.1:8000/ws/episodes";
+      }
+    };
+
+    const connectWs = () => {
+      try {
+        const url = getWsUrl();
+        ws = new WebSocket(url);
+        ws.onopen = () => {
+          wsAlive = true;
+        };
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (Array.isArray(data)) {
+              setEpisodes(data);
+              setFetchError(null);
+              setIsLoading(false);
+              // keep activeInspector if null
+              if (data.length > 0) {
+                setActiveInspector((prev: Episode | null) => prev || data[data.length - 1]);
+              }
+              // stop polling when WS is alive
+              if (pollId) {
+                clearInterval(pollId);
+                pollId = null;
+              }
+            }
+          } catch {}
+        };
+        ws.onclose = () => {
+          wsAlive = false;
+          if (!pollId) pollId = setInterval(fetchEpisodes, 5000);
+          setTimeout(connectWs, 5000);
+        };
+        ws.onerror = () => {
+          try {
+            ws?.close();
+          } catch {}
+        };
+      } catch {
+        if (!pollId) pollId = setInterval(fetchEpisodes, 5000);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      try {
+        ws?.close();
+      } catch {}
+      if (pollId) clearInterval(pollId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

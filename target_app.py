@@ -29,7 +29,8 @@ ITEM_CATALOG = {
 SECURITY_RULES = {
     "block_unauthorized_idor": False,
     "block_business_logic_abuse": False,
-    "block_sql_injection": False
+    "block_sql_injection": False,
+    "block_xss": False
 }
 
 class CheckoutPayload(BaseModel):
@@ -61,6 +62,17 @@ async def dynamic_security_filter(request: Request, call_next):
                 logger.warning(f"BLOCKED SQL INJECTION ATTEMPT from {client_ip}")
                 return Response(
                     content='{"detail":"Forbidden: SQL Injection Payload Detected"}',
+                    status_code=403,
+                    media_type="application/json"
+                )
+
+    if SECURITY_RULES["block_xss"]:
+        if path.startswith("/api/search"):
+            q = str(request.query_params.get("q", "") or request.query_params.get("query", ""))
+            if "<script" in q.lower() or "onerror" in q.lower() or "javascript:" in q.lower():
+                logger.warning(f"BLOCKED XSS ATTEMPT from {client_ip} q={q[:60]}")
+                return Response(
+                    content='{"detail":"Forbidden: XSS Payload Detected"}',
                     status_code=403,
                     media_type="application/json"
                 )
@@ -131,3 +143,10 @@ async def search_records(query: str = "", request: Request = None):
         return [{"id": r[0], "patient_name": r[1], "diagnosis": r[2]} for r in rows]
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/api/search")
+async def search_xss(q: str = "", request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    logger.info(f"Search XSS q='{q}' from {client_ip}")
+    # Vulnerable reflected XSS — echoes without sanitization
+    return {"query": q, "result": f"Results for: {q}", "html": f"<div>Search: {q}</div>"}

@@ -31,6 +31,8 @@ def _fallback_recon(scenario: str):
         return {"target_surface": "/api/records", "suspected_vulnerability": "SQL Injection", "target_parameter": "query", "recon_notes": "Dynamic search query endpoint"}
     elif scenario == "business_logic":
         return {"target_surface": "/api/checkout", "suspected_vulnerability": "Business Logic Abuse", "target_parameter": "quantity, unit_price", "recon_notes": "Order processing calculation route"}
+    elif scenario == "xss":
+        return {"target_surface": "/api/search", "suspected_vulnerability": "XSS", "target_parameter": "q", "recon_notes": "Reflected search parameter without sanitization"}
     else:
         return {"target_surface": "/api/user/102", "suspected_vulnerability": "IDOR", "target_parameter": "user_id", "recon_notes": "Direct object identifier parameter"}
 
@@ -52,6 +54,14 @@ def _fallback_attack_plan(scenario: str, base_url: str, vuln: str):
             "payload_json": json.dumps({"item_id": "license_pro", "quantity": -1, "unit_price": 250.0}),
             "hypothesis": "Negative quantity bypasses billing invariant"
         }
+    elif vuln == "XSS" or scenario == "xss":
+        return {
+            "vulnerability_target": "XSS",
+            "target_endpoint": f"{base_url}/api/search?q=<script>alert('xss')</script>",
+            "http_method": "GET",
+            "payload_json": None,
+            "hypothesis": "Reflected XSS via unsanitized q parameter"
+        }
     else:
         return {
             "vulnerability_target": "IDOR",
@@ -71,6 +81,8 @@ def _fallback_detection(url: str, status: int, body: str, payload: str = ""):
         return {"threat_detected": True, "vulnerability_type": "Business Logic Abuse", "confidence_score": 0.96, "technical_findings": "200 OK with negative total_billed indicates business logic bypass"}
     if status == 200 and "/api/records" in url_l and ("master_secret" in body_l or "secret_token" in body_l or "bob-token" in body_l):
         return {"threat_detected": True, "vulnerability_type": "SQL Injection", "confidence_score": 0.98, "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"}
+    if status == 200 and "/api/search" in url_l and ("<script" in body_l or "&lt;script" in body_l or "alert('xss')" in body_l):
+        return {"threat_detected": True, "vulnerability_type": "XSS", "confidence_score": 0.97, "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"}
     if 400 <= status <= 499:
         return {"threat_detected": False, "vulnerability_type": "None", "confidence_score": 0.92, "technical_findings": f"{status} correctly blocked - boundary enforced"}
     # fallback based on status 200 generally is threat if not 4xx and endpoint matches scenario
@@ -83,6 +95,9 @@ def _fallback_detection(url: str, status: int, body: str, payload: str = ""):
             # check if body contains negative
             if "-" in body:
                 return {"threat_detected": True, "vulnerability_type": "Business Logic Abuse", "confidence_score": 0.85, "technical_findings": "200 OK with anomalous billing"}
+        if "/api/search" in url_l:
+            if "<script" in body_l:
+                return {"threat_detected": True, "vulnerability_type": "XSS", "confidence_score": 0.95, "technical_findings": "200 OK reflected XSS payload"}
     return {"threat_detected": False, "vulnerability_type": "None", "confidence_score": 0.7, "technical_findings": "No clear threat pattern - requires manual triage"}
 
 def _fallback_hardening(threat_detected: bool, vuln_type: str):
@@ -90,6 +105,7 @@ def _fallback_hardening(threat_detected: bool, vuln_type: str):
         "IDOR": "block_unauthorized_idor",
         "SQL Injection": "block_sql_injection",
         "Business Logic Abuse": "block_business_logic_abuse",
+        "XSS": "block_xss",
     }
     if not threat_detected:
         return {
@@ -102,11 +118,13 @@ def _fallback_hardening(threat_detected: bool, vuln_type: str):
         "block_unauthorized_idor": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
         "block_sql_injection": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
         "block_business_logic_abuse": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+        "block_xss": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
     }
     actions = {
         "block_unauthorized_idor": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
         "block_sql_injection": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
         "block_business_logic_abuse": "Server validation rejecting non-positive quantity/price and price tampering",
+        "block_xss": "WAF stripping <script> and javascript: payloads on /api/search",
     }
     return {
         "target_rule_name": rule,
@@ -129,12 +147,12 @@ class AttackPlan(BaseModel):
 
 class DetectionReport(BaseModel):
     threat_detected: bool = Field(description="True if unexpected boundary breach succeeded")
-    vulnerability_type: str = Field(description="IDOR, Business Logic Abuse, or SQL Injection")
+    vulnerability_type: str = Field(description="IDOR, Business Logic Abuse, SQL Injection, or XSS")
     confidence_score: float = Field(description="Confidence value between 0.0 and 1.0")
     technical_findings: str = Field(description="Technical rationale from HTTP response")
 
 class HardeningPlan(BaseModel):
-    target_rule_name: str = Field(description="block_unauthorized_idor, block_business_logic_abuse, block_sql_injection, or none")
+    target_rule_name: str = Field(description="block_unauthorized_idor, block_business_logic_abuse, block_sql_injection, block_xss, or none")
     mitigation_action: str = Field(description="Dynamic filtering action to invoke")
     remediation_suggestion: str = Field(description="Engineering remediation guidance")
 
@@ -181,6 +199,12 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
             "Target route is '/api/checkout'. "
             "Set target_surface to '/api/checkout', suspected_vulnerability to 'Business Logic Abuse', "
             "target_parameter to 'quantity, unit_price', recon_notes to 'Order processing calculation route'."
+        )
+    elif scenario == "xss":
+        instruction = (
+            "Target route is '/api/search'. "
+            "Set target_surface to '/api/search', suspected_vulnerability to 'XSS', "
+            "target_parameter to 'q', recon_notes to 'Reflected search without sanitization'."
         )
     else:
         instruction = (
@@ -230,6 +254,14 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
                 "Set target_endpoint to '{base_url}/api/checkout'. "
                 "Set http_method to 'POST'. "
                 "Set payload_json to '{{\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}}'."
+            )
+        elif vuln == "XSS":
+            instruction = (
+                "Formulate XSS validation request on endpoint: {base_url}/api/search?q=<script>alert('xss')</script> . "
+                "Set vulnerability_target to 'XSS'. "
+                "Set target_endpoint to \"{base_url}/api/search?q=<script>alert('xss')</script>\". "
+                "Set http_method to 'GET'. "
+                "Set payload_json to null."
             )
         else:
             instruction = (
@@ -296,6 +328,7 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
                        "1. If status is 200 on /api/user/* exposing confidential records, threat_detected=True, vulnerability_type='IDOR'. "
                        "2. If status is 200 on /api/checkout with negative total_billed, threat_detected=True, vulnerability_type='Business Logic Abuse'. "
                        "3. If status is 200 on /api/records exposing user tokens or MASTER_SECRET_KEY, threat_detected=True, vulnerability_type='SQL Injection'. "
+                       "3b. If status is 200 on /api/search reflecting <script>alert('xss')</script>, threat_detected=True, vulnerability_type='XSS'. "
                        "4. If status is 4xx, threat_detected=False."),
             ("human", "Endpoint: {url}\nStatus: {status}\nPayload: {payload}\nResponse: {body}\nEvaluate telemetry:")
         ])
@@ -333,7 +366,8 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
                            "If threat_detected is False, target_rule_name='none'. "
                            "If vulnerability_type is 'IDOR', target_rule_name='block_unauthorized_idor'. "
                            "If vulnerability_type is 'Business Logic Abuse', target_rule_name='block_business_logic_abuse'. "
-                           "If vulnerability_type is 'SQL Injection', target_rule_name='block_sql_injection'."),
+                           "If vulnerability_type is 'SQL Injection', target_rule_name='block_sql_injection'. "
+                           "If vulnerability_type is 'XSS', target_rule_name='block_xss'."),
                 ("human", "Detection Report: {report}\nDetermine mitigation action and engineering remediation:")
             ])
             structured_hardening = llm.with_structured_output(HardeningPlan)
