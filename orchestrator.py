@@ -173,6 +173,7 @@ class EpisodeState(TypedDict):
     patch_applied: Optional[bool]
     retest_status: Optional[int]
     posture_score: Optional[float]
+    pr_url: Optional[str]
 
 def memory_retrieval_node(state: EpisodeState) -> Dict[str, Any]:
     try:
@@ -435,7 +436,40 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
         )
     except Exception as e:
         print(f"[storage] memory store failed: {e}")
-    return {"posture_score": score}
+
+    # Git-Native PR for XSS (Step 1) — via GitHub API (zero storage/memory)
+    pr_url = None
+    if state.get("threat_detected") and state.get("vulnerability_type") == "XSS":
+        try:
+            from remediator import create_security_pr, generate_xss_patch
+            # Read local vulnerable snippet for LLM context
+            vuln_code = ""
+            try:
+                with open("target_app.py", encoding="utf-8") as f:
+                    txt = f.read()
+                    # Extract search_xss function
+                    start = txt.find('@app.get("/api/search")')
+                    if start != -1:
+                        end = txt.find("\n@app.", start + 1)
+                        vuln_code = txt[start:end if end != -1 else start + 800]
+                    else:
+                        vuln_code = txt[:800]
+            except Exception as e:
+                print(f"[pr] read local file failed: {e}")
+                vuln_code = 'def search_xss(q: str = ""): return {"html": f"<div>{q}</div>"}'
+            patched = generate_xss_patch(vuln_code)
+            pr_url = create_security_pr(
+                file_path="target_app.py",
+                patched_code=patched,
+                vuln_name="XSS",
+                episode_id=state["episode_id"],
+            )
+            print(f"[pr] result: {pr_url}")
+        except Exception as e:
+            print(f"[pr] failed: {e}")
+            pr_url = f"PR Failed: {e}"
+
+    return {"posture_score": score, "pr_url": pr_url}
 
 workflow = StateGraph(EpisodeState)
 

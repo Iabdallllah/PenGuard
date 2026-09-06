@@ -55,6 +55,7 @@ interface Episode {
   duration_ms?: number;
   scenario?: string;
   base_url?: string;
+  pr_url?: string | null;
   recon_data?: any;
   detection_report?: any;
   hardening_plan?: any;
@@ -1430,6 +1431,27 @@ export default function Dashboard() {
                             <p className="text-xs leading-relaxed text-slate-300">{activeInspector.remediation}</p>
                           </div>
                         </div>
+
+                        {activeInspector.pr_url && (
+                          <div>
+                            <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">Git-Native Patch</div>
+                            {activeInspector.pr_url.startsWith("http") ? (
+                              <a
+                                href={activeInspector.pr_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 mono text-xs font-semibold hover:bg-emerald-500/20 transition-colors"
+                              >
+                                <span>VIEW PULL REQUEST</span>
+                                <Icon.External className="w-3.5 h-3.5" />
+                              </a>
+                            ) : (
+                              <div className="px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 mono text-xs text-slate-500">
+                                {activeInspector.pr_url}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div className="rounded-xl border border-slate-800 overflow-hidden">
                           <button

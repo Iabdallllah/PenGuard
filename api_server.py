@@ -333,6 +333,7 @@ async def trigger_run(payload: RunRequest):
             "duration_ms": duration_ms,
             "scenario": scenario_norm,
             "base_url": base_url,
+            "pr_url": result.get("pr_url"),
             # expose extra telemetry for inspector without breaking UI
             "recon_data": result.get("recon_data"),
             "detection_report": result.get("detection_report"),
