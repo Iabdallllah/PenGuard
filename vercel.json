@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd dashboard && npm install && npm run build",
+  "outputDirectory": "dashboard/.next",
+  "framework": "nextjs",
+  "installCommand": "cd dashboard && npm install",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://purple-api.onrender.com/api/:path*" }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_BASE": "https://purple-api.onrender.com"
+  }
+}

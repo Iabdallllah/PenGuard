@@ -1,0 +1,865 @@
+[
+  {
+    "id": "90a29a0a",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T11:52:42.710824Z] Episode 90a29a0a initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1324ms"
+    ],
+    "timestamp": "2026-09-06T11:52:42.710798Z",
+    "duration_ms": 1324,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "a73b569c",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-06T11:52:43.888606Z] Episode a73b569c initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1143ms"
+    ],
+    "timestamp": "2026-09-06T11:52:43.888585Z",
+    "duration_ms": 1143,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Dynamic search query endpoint"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "879db5b8",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T11:52:45.145140Z] Episode 879db5b8 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1225ms"
+    ],
+    "timestamp": "2026-09-06T11:52:45.145121Z",
+    "duration_ms": 1225,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "b06c44be",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T11:53:13.464522Z] Episode b06c44be initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1384ms"
+    ],
+    "timestamp": "2026-09-06T11:53:13.464467Z",
+    "duration_ms": 1384,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "68bffb90",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T11:58:02.218716Z] Episode 68bffb90 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1143ms"
+    ],
+    "timestamp": "2026-09-06T11:58:02.218698Z",
+    "duration_ms": 1143,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "fb0e6dc4",
+    "target": "https://voxorai.vercel.app/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-06T11:59:17.168209Z] Episode fb0e6dc4 initiated · scenario=business_logic · target=https://voxorai.vercel.app",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST https://voxorai.vercel.app/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1273ms"
+    ],
+    "timestamp": "2026-09-06T11:59:17.168188Z",
+    "duration_ms": 1273,
+    "scenario": "business_logic",
+    "base_url": "https://voxorai.vercel.app",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "b43fff73",
+    "target": "https://voxorai.vercel.app/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-06T11:59:25.828497Z] Episode b43fff73 initiated · scenario=idor · target=https://voxorai.vercel.app",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET https://voxorai.vercel.app/api/user/102 payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1486ms"
+    ],
+    "timestamp": "2026-09-06T11:59:25.828465Z",
+    "duration_ms": 1486,
+    "scenario": "idor",
+    "base_url": "https://voxorai.vercel.app",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "4a6f7603",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T12:11:05.396960Z] Episode 4a6f7603 initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1195ms"
+    ],
+    "timestamp": "2026-09-06T12:11:05.396915Z",
+    "duration_ms": 1195,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "a428534f",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-06T12:11:34.426149Z] Episode a428534f initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1155ms"
+    ],
+    "timestamp": "2026-09-06T12:11:34.426134Z",
+    "duration_ms": 1155,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Dynamic search query endpoint"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "50320487",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T12:11:39.558910Z] Episode 50320487 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1134ms"
+    ],
+    "timestamp": "2026-09-06T12:11:39.558894Z",
+    "duration_ms": 1134,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "b79ac84d",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T12:11:41.990559Z] Episode b79ac84d initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1169ms"
+    ],
+    "timestamp": "2026-09-06T12:11:41.990543Z",
+    "duration_ms": 1169,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "db519684",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T12:11:43.504072Z] Episode db519684 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1158ms"
+    ],
+    "timestamp": "2026-09-06T12:11:43.504054Z",
+    "duration_ms": 1158,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "6990abf7",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T12:11:44.965083Z] Episode 6990abf7 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1161ms"
+    ],
+    "timestamp": "2026-09-06T12:11:44.965065Z",
+    "duration_ms": 1161,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "4cd6432e",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T12:18:25.412885Z] Episode 4cd6432e initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=2365ms",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:45714 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-06 12:18:25,003 [INFO] Incoming request from 172.17.0.1 targeting user_id: 102",
+      "[sandbox] INFO:     172.17.0.1:45716 - \"GET /api/user/102 HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:45732 - \"POST /admin/apply-mitigation HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-06 12:18:25,016 [WARNING] BLOCKED IDOR ATTEMPT from 172.17.0.1 to /api/user/102",
+      "[sandbox] INFO:     172.17.0.1:45746 - \"GET /api/user/102 HTTP/1.1\" 403 Forbidden"
+    ],
+    "timestamp": "2026-09-06T12:18:25.412866Z",
+    "duration_ms": 2365,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "ac2b5c90",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T12:48:30.204519Z] Episode ac2b5c90 initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1433ms"
+    ],
+    "timestamp": "2026-09-06T12:48:30.204464Z",
+    "duration_ms": 1433,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "3aa6b707",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T12:51:17.959520Z] Episode 3aa6b707 initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1265ms"
+    ],
+    "timestamp": "2026-09-06T12:51:17.959497Z",
+    "duration_ms": 1265,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "43c6b205",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-06T12:51:21.805122Z] Episode 43c6b205 initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1411ms"
+    ],
+    "timestamp": "2026-09-06T12:51:21.805102Z",
+    "duration_ms": 1411,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Dynamic search query endpoint"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "5341db66",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-06T12:51:23.230326Z] Episode 5341db66 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1396ms"
+    ],
+    "timestamp": "2026-09-06T12:51:23.230306Z",
+    "duration_ms": 1396,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Order processing calculation route"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "331d01bc",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-06T12:51:25.232795Z] Episode 331d01bc initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/102 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1968ms"
+    ],
+    "timestamp": "2026-09-06T12:51:25.232767Z",
+    "duration_ms": 1968,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/user/102",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Direct object identifier parameter"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  }
+]

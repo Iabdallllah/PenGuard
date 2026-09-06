@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: purple-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    env: python
+    healthCheckPath: /api/health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TARGET_PORT
+        value: 8001
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    # Render sets PORT automatically (8000). We run API on $PORT and target on $TARGET_PORT internally
+
+  - type: web
+    name: purple-target
+    runtime: docker
+    dockerfilePath: ./sandbox/Dockerfile
+    plan: free
+    healthCheckPath: /
+    # Alternative: if you prefer separate target service on Render, use this.
+    # Otherwise, single Dockerfile above already runs both.
