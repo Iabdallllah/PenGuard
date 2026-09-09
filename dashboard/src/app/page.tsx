@@ -388,6 +388,7 @@ export default function Dashboard() {
 
   const handleNavClick = (label: string) => {
     setActiveNav(label);
+    setMobileNavOpen(false);
     // Smooth scroll without changing visual layout — keep shape identical
     const map: Record<string, string> = {
       "Command Center": "top",
@@ -724,15 +725,27 @@ export default function Dashboard() {
         {/* ─── Sidebar — Collapsible Rail Mode ─── */}
         <aside
           aria-label="Primary"
+          aria-hidden={!mobileNavOpen && typeof window !== "undefined" && window.innerWidth < 1024}
           className={cn(
-            "hidden lg:flex shrink-0 flex-col border-r border-slate-800/80 bg-[#0B0F1A]/80 backdrop-blur-xl sticky top-0 h-screen transition-all duration-300 ease-in-out",
-            isCollapsed ? "w-20" : "w-[288px]",
-            "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:w-[300px] max-lg:transition-transform",
-            !mobileNavOpen && "max-lg:hidden"
+            "shrink-0 flex flex-col border-r border-slate-800/80 bg-[#0B0F1A] lg:bg-[#0B0F1A]/80 backdrop-blur-xl transition-all duration-300 ease-in-out",
+            "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+            isCollapsed ? "lg:w-20" : "lg:w-[288px]",
+            "w-[300px] max-w-[85vw] max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:h-[100dvh] max-lg:shadow-2xl max-lg:shadow-black/60",
+            mobileNavOpen ? "max-lg:translate-x-0 max-lg:flex" : "max-lg:-translate-x-full max-lg:hidden",
+            "lg:flex"
           )}
         >
           {/* Brand — no logos, typographic only */}
           <div className={cn("border-b border-slate-800/80", isCollapsed ? "px-3 pt-6 pb-5" : "px-6 pt-6 pb-6")}>
+            <div className="flex items-center justify-end lg:hidden mb-2">
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close navigation"
+                className="w-8 h-8 grid place-items-center rounded-lg border border-[#1E293B] bg-[#0E1626] text-slate-400 hover:text-white transition-colors"
+              >
+                <Icon.X className="w-4 h-4" />
+              </button>
+            </div>
             <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between gap-3")}>
               {!isCollapsed ? (
                 <>
@@ -797,8 +810,8 @@ export default function Dashboard() {
                 ].map((item) => {
                   const ItemIcon = item.icon;
                   const isActive = activeNav === item.label;
-                  // Collapsed: icon centered + tooltip — now interactive
-                  if (isCollapsed) {
+                  // Collapsed rail is desktop-only — mobile drawer always shows full rows
+                  if (isCollapsed && !mobileNavOpen) {
                     return (
                       <div key={item.label} className="relative group flex justify-center">
                         <button
