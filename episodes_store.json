@@ -861,5 +861,1499 @@
       "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
     },
     "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "69774b1e",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
+    "logs": [
+      "[2026-09-06T17:42:01.962508Z] Episode 69774b1e initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=200 body={\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}",
+      "[detection] threat=True type=XSS confidence=0.97 findings=200 OK reflected unsanitized script payload indicates XSS",
+      "[hardening] rule=block_xss action=WAF stripping <script> and javascript: payloads on /api/search",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1306ms"
+    ],
+    "timestamp": "2026-09-06T17:42:01.962491Z",
+    "duration_ms": 1306,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Reflected search parameter without sanitization"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "XSS",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_xss",
+      "mitigation_action": "WAF stripping <script> and javascript: payloads on /api/search",
+      "remediation_suggestion": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input."
+    },
+    "response_body": "{\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}"
+  },
+  {
+    "id": "9166d7f9",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-06T17:56:03.214884Z] Episode 9166d7f9 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 69774b1e\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Im",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=2224ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:37412 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:37418 - \"GET /api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-06T17:56:03.214857Z",
+    "duration_ms": 2224,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Reflected search parameter without sanitization"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "be886db7",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-06T18:55:45.523668Z] Episode be886db7 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 9166d7f9\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1973ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:52700 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:52716 - \"GET /api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-06T18:55:45.523655Z",
+    "duration_ms": 1973,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Reflected search parameter without sanitization"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "a142372d",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-09T21:44:32.709110Z] Episode a142372d initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/101 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=2310ms",
+      "[sandbox] INFO:     172.17.0.1:46138 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:32,369 [INFO] Incoming request from 172.17.0.1 targeting user_id: 101",
+      "[sandbox] INFO:     172.17.0.1:46148 - \"GET /api/user/101 HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:32,373 [INFO] Incoming request from 172.17.0.1 targeting user_id: 102",
+      "[sandbox] INFO:     172.17.0.1:46158 - \"GET /api/user/102 HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46166 - \"POST /admin/apply-mitigation HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:32,383 [WARNING] BLOCKED IDOR ATTEMPT from 172.17.0.1 to /api/user/102",
+      "[sandbox] INFO:     172.17.0.1:46176 - \"GET /api/user/102 HTTP/1.1\" 403 Forbidden"
+    ],
+    "timestamp": "2026-09-09T21:44:32.709090Z",
+    "duration_ms": 2310,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/user/101",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Discovered via probe /api/user/101 -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "ed412eab",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-09T21:44:34.845750Z] Episode ed412eab initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1514ms",
+      "[sandbox] INFO:     172.17.0.1:46400 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:34,457 [INFO] Search records received query 'test' from 172.17.0.1",
+      "[sandbox] INFO:     172.17.0.1:46408 - \"GET /api/records?query=test HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:34,462 [INFO] Search records received query '' UNION SELECT id, name, secret_token FROM users -- ' from 172.17.0.1",
+      "[sandbox] INFO:     172.17.0.1:46424 - \"GET /api/records?query='%20UNION%20SELECT%20id,%20name,%20secret_token%20FROM%20users%20--%20 HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46430 - \"POST /admin/apply-mitigation HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:34,475 [WARNING] BLOCKED SQL INJECTION ATTEMPT from 172.17.0.1",
+      "[sandbox] INFO:     172.17.0.1:46446 - \"GET /api/records?query='%20UNION%20SELECT%20id,%20name,%20secret_token%20FROM%20users%20--%20 HTTP/1.1\" 403 Forbidden"
+    ],
+    "timestamp": "2026-09-09T21:44:34.845721Z",
+    "duration_ms": 1514,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Discovered via probe /api/records?query=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "aae35483",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-09T21:44:37.060238Z] Episode aae35483 initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1566ms",
+      "[sandbox] INFO:     172.17.0.1:46468 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46484 - \"GET /api/checkout HTTP/1.1\" 405 Method Not Allowed",
+      "[sandbox] 2026-09-09 21:44:36,678 [INFO] Checkout received from 172.17.0.1: item=license_pro, qty=-1, price=250.0",
+      "[sandbox] INFO:     172.17.0.1:46500 - \"POST /api/checkout HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46504 - \"POST /admin/apply-mitigation HTTP/1.1\" 200 OK",
+      "[sandbox] 2026-09-09 21:44:36,686 [INFO] Checkout received from 172.17.0.1: item=license_pro, qty=-1, price=250.0",
+      "[sandbox] 2026-09-09 21:44:36,686 [WARNING] BLOCKED BUSINESS LOGIC ABUSE: Non-positive values rejected from 172.17.0.1",
+      "[sandbox] INFO:     172.17.0.1:46512 - \"POST /api/checkout HTTP/1.1\" 400 Bad Request"
+    ],
+    "timestamp": "2026-09-09T21:44:37.060213Z",
+    "duration_ms": 1566,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Discovered via probe /api/checkout -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "2727de23",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:44:39.085477Z] Episode 2727de23 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1414ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:46532 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46542 - \"GET /api/search?q=test HTTP/1.1\" 404 Not Found",
+      "[sandbox] INFO:     172.17.0.1:46554 - \"GET /api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-09T21:44:39.085462Z",
+    "duration_ms": 1414,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 404"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "f657e593",
+    "target": "http://127.0.0.1:8001/api/transfer",
+    "attack_type": "csrf",
+    "attack_label": "CSRF",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:44:41.192622Z] Episode f657e593 initiated · scenario=csrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 0a2d0404\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Add an authorization middleware",
+      "[recon] surface=/api/transfer vuln=CSRF param=to, amount",
+      "[exploit] POST http://127.0.0.1:8001/api/transfer payload={\"to\": \"attacker\", \"amount\": 1000}",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1483ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:46574 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:46578 - \"GET /api/transfer HTTP/1.1\" 404 Not Found",
+      "[sandbox] INFO:     172.17.0.1:46588 - \"POST /api/transfer HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-09T21:44:41.192609Z",
+    "duration_ms": 1483,
+    "scenario": "csrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/transfer",
+      "suspected_vulnerability": "CSRF",
+      "target_parameter": "to, amount",
+      "recon_notes": "Discovered via probe /api/transfer -> 404"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "4a6efb57",
+    "target": "http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/",
+    "attack_type": "ssrf",
+    "attack_label": "SSRF",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:44:43.251970Z] Episode 4a6efb57 initiated · scenario=ssrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 208d9fc6\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Status: 200 - Body: {\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"Bob p",
+      "[recon] surface=/api/fetch vuln=SSRF param=url",
+      "[exploit] GET http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/ payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1478ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:59244 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:59258 - \"GET /api/fetch?url=http://example.com HTTP/1.1\" 404 Not Found",
+      "[sandbox] INFO:     172.17.0.1:59264 - \"GET /api/fetch?url=http://169.254.169.254/latest/meta-data/ HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-09T21:44:43.251952Z",
+    "duration_ms": 1478,
+    "scenario": "ssrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/fetch",
+      "suspected_vulnerability": "SSRF",
+      "target_parameter": "url",
+      "recon_notes": "Discovered via probe /api/fetch?url=http://example.com -> 404"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "82f09dc1",
+    "target": "http://127.0.0.1:8001/api/login",
+    "attack_type": "broken_auth",
+    "attack_label": "Broken Authentication",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:44:45.337424Z] Episode 82f09dc1 initiated · scenario=broken_auth · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 0a2d0404\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Add an authorization middleware",
+      "[recon] surface=/api/login vuln=Broken Authentication param=username, password",
+      "[exploit] POST http://127.0.0.1:8001/api/login payload={\"username\": \"admin\", \"password\": \"wrongpass\"}",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1525ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:59282 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:59286 - \"GET /api/login HTTP/1.1\" 404 Not Found",
+      "[sandbox] INFO:     172.17.0.1:59302 - \"POST /api/login HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-09T21:44:45.337407Z",
+    "duration_ms": 1525,
+    "scenario": "broken_auth",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/login",
+      "suspected_vulnerability": "Broken Authentication",
+      "target_parameter": "username, password",
+      "recon_notes": "Discovered via probe /api/login -> 404"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "944e4a41",
+    "target": "http://127.0.0.1:8001/api/debug",
+    "attack_type": "misconfig",
+    "attack_label": "Security Misconfiguration",
+    "status": 404,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:44:47.402438Z] Episode 944e4a41 initiated · scenario=misconfig · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 82f09dc1\nAttack Type: Broken Authentication\nTarget Endpoint: http://127.0.0.1:8001/api/login\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediation r",
+      "[recon] surface=/api/debug vuln=Security Misconfiguration param=none",
+      "[exploit] GET http://127.0.0.1:8001/api/debug payload=—",
+      "[probe] initial status=404 body={\"detail\":\"Not Found\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=404 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1521ms",
+      "[sandbox] INFO:     Started server process [1]",
+      "[sandbox] INFO:     Waiting for application startup.",
+      "[sandbox] INFO:     Application startup complete.",
+      "[sandbox] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "[sandbox] INFO:     172.17.0.1:59316 - \"GET / HTTP/1.1\" 200 OK",
+      "[sandbox] INFO:     172.17.0.1:59320 - \"GET /api/debug HTTP/1.1\" 404 Not Found",
+      "[sandbox] INFO:     172.17.0.1:59332 - \"GET /api/debug HTTP/1.1\" 404 Not Found"
+    ],
+    "timestamp": "2026-09-09T21:44:47.402421Z",
+    "duration_ms": 1521,
+    "scenario": "misconfig",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/debug",
+      "suspected_vulnerability": "Security Misconfiguration",
+      "target_parameter": "none",
+      "recon_notes": "Discovered via probe /api/debug -> 404"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "404 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Not Found\"}"
+  },
+  {
+    "id": "90e66a1c",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-09T21:46:38.477379Z] Episode 90e66a1c initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/101 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=994ms"
+    ],
+    "timestamp": "2026-09-09T21:46:38.477364Z",
+    "duration_ms": 994,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/user/101",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Discovered via probe /api/user/101 -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "acefc621",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-09T21:46:39.617281Z] Episode acefc621 initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1054ms"
+    ],
+    "timestamp": "2026-09-09T21:46:39.617266Z",
+    "duration_ms": 1054,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Discovered via probe /api/records?query=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "6fd4dfba",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-09T21:46:40.742312Z] Episode 6fd4dfba initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1040ms"
+    ],
+    "timestamp": "2026-09-09T21:46:40.742301Z",
+    "duration_ms": 1040,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Discovered via probe /api/checkout -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "9ec32666",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 400,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:46:41.846003Z] Episode 9ec32666 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 2727de23\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=400 body={\"detail\":\"Invalid input: potential XSS detected\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=400 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1014ms"
+    ],
+    "timestamp": "2026-09-09T21:46:41.845985Z",
+    "duration_ms": 1014,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "400 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Invalid input: potential XSS detected\"}"
+  },
+  {
+    "id": "15613fee",
+    "target": "http://127.0.0.1:8001/api/transfer",
+    "attack_type": "csrf",
+    "attack_label": "CSRF",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer.",
+    "logs": [
+      "[2026-09-09T21:46:43.012287Z] Episode 15613fee initiated · scenario=csrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: f657e593\nAttack Type: CSRF\nTarget Endpoint: http://127.0.0.1:8001/api/transfer\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediation required - cont",
+      "[recon] surface=/api/transfer vuln=CSRF param=to, amount",
+      "[exploit] POST http://127.0.0.1:8001/api/transfer payload={\"to\": \"attacker\", \"amount\": 1000}",
+      "[probe] initial status=200 body={\"status\":\"transferred\",\"to\":\"attacker\",\"amount\":1000.0,\"message\":\"Transfer completed - CSRF not validated\"}",
+      "[detection] threat=True type=CSRF confidence=0.96 findings=200 OK transfer without CSRF token indicates CSRF",
+      "[hardening] rule=block_csrf action=CSRF token validation for /api/transfer",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1080ms"
+    ],
+    "timestamp": "2026-09-09T21:46:43.012266Z",
+    "duration_ms": 1080,
+    "scenario": "csrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/transfer",
+      "suspected_vulnerability": "CSRF",
+      "target_parameter": "to, amount",
+      "recon_notes": "Discovered via probe /api/transfer -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "CSRF",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK transfer without CSRF token indicates CSRF"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_csrf",
+      "mitigation_action": "CSRF token validation for /api/transfer",
+      "remediation_suggestion": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer."
+    },
+    "response_body": "{\"status\":\"transferred\",\"to\":\"attacker\",\"amount\":1000.0,\"message\":\"Transfer completed - CSRF not validated\"}"
+  },
+  {
+    "id": "9d9a9c53",
+    "target": "http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/",
+    "attack_type": "ssrf",
+    "attack_label": "SSRF",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch.",
+    "logs": [
+      "[2026-09-09T21:46:44.223325Z] Episode 9d9a9c53 initiated · scenario=ssrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 4a6efb57\nAttack Type: SSRF\nTarget Endpoint: http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/\nObservation: Initial: 404 | Re-test: None\nMitigati",
+      "[recon] surface=/api/fetch vuln=SSRF param=url",
+      "[exploit] GET http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/ payload=—",
+      "[probe] initial status=200 body={\"url\":\"http://169.254.169.254/latest/meta-data/\",\"content\":\"ami-id: ami-123456, secret: MASTER_SECRET_KEY_XYZ999, role: admin\",\"leaked\":true}",
+      "[detection] threat=True type=SSRF confidence=0.97 findings=200 OK leaked internal metadata via SSRF",
+      "[hardening] rule=block_ssrf action=SSRF allowlist for /api/fetch",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1131ms"
+    ],
+    "timestamp": "2026-09-09T21:46:44.223312Z",
+    "duration_ms": 1131,
+    "scenario": "ssrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/fetch",
+      "suspected_vulnerability": "SSRF",
+      "target_parameter": "url",
+      "recon_notes": "Discovered via probe /api/fetch?url=http://example.com -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SSRF",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK leaked internal metadata via SSRF"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_ssrf",
+      "mitigation_action": "SSRF allowlist for /api/fetch",
+      "remediation_suggestion": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch."
+    },
+    "response_body": "{\"url\":\"http://169.254.169.254/latest/meta-data/\",\"content\":\"ami-id: ami-123456, secret: MASTER_SECRET_KEY_XYZ999, role: admin\",\"leaked\":true}"
+  },
+  {
+    "id": "9c98a3ee",
+    "target": "http://127.0.0.1:8001/api/login",
+    "attack_type": "broken_auth",
+    "attack_label": "Broken Authentication",
+    "status": 200,
+    "retest_status": 401,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin.",
+    "logs": [
+      "[2026-09-09T21:46:45.374370Z] Episode 9c98a3ee initiated · scenario=broken_auth · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 82f09dc1\nAttack Type: Broken Authentication\nTarget Endpoint: http://127.0.0.1:8001/api/login\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediation r",
+      "[recon] surface=/api/login vuln=Broken Authentication param=username, password",
+      "[exploit] POST http://127.0.0.1:8001/api/login payload={\"username\": \"admin\", \"password\": \"wrongpass\"}",
+      "[probe] initial status=200 body={\"status\":\"authenticated\",\"user\":\"admin\",\"token\":\"admin-bypass-token\",\"vulnerable\":true}",
+      "[detection] threat=True type=Broken Authentication confidence=0.96 findings=200 OK admin authenticated with wrong password indicates broken auth",
+      "[hardening] rule=block_broken_auth action=Authentication enforcement for /api/login",
+      "[patch] applied=True retest_status=401",
+      "[score] posture=100.0 duration=1057ms"
+    ],
+    "timestamp": "2026-09-09T21:46:45.374360Z",
+    "duration_ms": 1057,
+    "scenario": "broken_auth",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/login",
+      "suspected_vulnerability": "Broken Authentication",
+      "target_parameter": "username, password",
+      "recon_notes": "Discovered via probe /api/login -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Broken Authentication",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK admin authenticated with wrong password indicates broken auth"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_broken_auth",
+      "mitigation_action": "Authentication enforcement for /api/login",
+      "remediation_suggestion": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin."
+    },
+    "response_body": "{\"status\":\"authenticated\",\"user\":\"admin\",\"token\":\"admin-bypass-token\",\"vulnerable\":true}"
+  },
+  {
+    "id": "f25b9f90",
+    "target": "http://127.0.0.1:8001/api/debug",
+    "attack_type": "misconfig",
+    "attack_label": "Security Misconfiguration",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication.",
+    "logs": [
+      "[2026-09-09T21:46:46.484806Z] Episode f25b9f90 initiated · scenario=misconfig · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 944e4a41\nAttack Type: Security Misconfiguration\nTarget Endpoint: http://127.0.0.1:8001/api/debug\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediati",
+      "[recon] surface=/api/debug vuln=Security Misconfiguration param=none",
+      "[exploit] GET http://127.0.0.1:8001/api/debug payload=—",
+      "[probe] initial status=200 body={\"debug\":true,\"env\":{\"SECRET_KEY\":\"MASTER_SECRET_KEY_XYZ999\",\"DB_PASSWORD\":\"supersecret123\",\"DEBUG\":\"true\"},\"stack\":\"File 'target_app.py' line 42 ...\",\"vulnerable\":true}",
+      "[detection] threat=True type=Security Misconfiguration confidence=0.95 findings=200 OK debug endpoint leaks secrets",
+      "[hardening] rule=block_misconfig action=Disable /api/debug in production",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1026ms"
+    ],
+    "timestamp": "2026-09-09T21:46:46.484794Z",
+    "duration_ms": 1026,
+    "scenario": "misconfig",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/debug",
+      "suspected_vulnerability": "Security Misconfiguration",
+      "target_parameter": "none",
+      "recon_notes": "Discovered via probe /api/debug -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Security Misconfiguration",
+      "confidence_score": 0.95,
+      "technical_findings": "200 OK debug endpoint leaks secrets"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_misconfig",
+      "mitigation_action": "Disable /api/debug in production",
+      "remediation_suggestion": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication."
+    },
+    "response_body": "{\"debug\":true,\"env\":{\"SECRET_KEY\":\"MASTER_SECRET_KEY_XYZ999\",\"DB_PASSWORD\":\"supersecret123\",\"DEBUG\":\"true\"},\"stack\":\"File 'target_app.py' line 42 ...\",\"vulnerable\":true}"
+  },
+  {
+    "id": "38deba20",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 400,
+    "retest_status": null,
+    "patch_applied": false,
+    "threat_flag": false,
+    "score": 100.0,
+    "remediation": "No remediation required - controls effective. Continue monitoring and periodic re-test.",
+    "logs": [
+      "[2026-09-09T21:49:23.318300Z] Episode 38deba20 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 2727de23\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=400 body={\"detail\":\"Invalid input: potential XSS detected\"}",
+      "[detection] threat=False type=None confidence=0.92 findings=400 correctly blocked - boundary enforced",
+      "[hardening] rule=none action=no action - no threat",
+      "[patch] applied=False retest_status=None",
+      "[score] posture=100.0 duration=1140ms"
+    ],
+    "timestamp": "2026-09-09T21:49:23.318276Z",
+    "duration_ms": 1140,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": false,
+      "vulnerability_type": "None",
+      "confidence_score": 0.92,
+      "technical_findings": "400 correctly blocked - boundary enforced"
+    },
+    "hardening_plan": {
+      "target_rule_name": "none",
+      "mitigation_action": "no action - no threat",
+      "remediation_suggestion": "No remediation required - controls effective. Continue monitoring and periodic re-test."
+    },
+    "response_body": "{\"detail\":\"Invalid input: potential XSS detected\"}"
+  },
+  {
+    "id": "f0eb9351",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
+    "logs": [
+      "[2026-09-09T21:53:13.295441Z] Episode f0eb9351 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 2727de23\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=200 body={\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}",
+      "[detection] threat=True type=XSS confidence=0.97 findings=200 OK reflected unsanitized script payload indicates XSS",
+      "[hardening] rule=block_xss action=WAF stripping <script> and javascript: payloads on /api/search",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1236ms"
+    ],
+    "timestamp": "2026-09-09T21:53:13.295424Z",
+    "duration_ms": 1236,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": "PR Skipped: GITHUB_TOKEN or GITHUB_TARGET_REPO not configured",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "XSS",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_xss",
+      "mitigation_action": "WAF stripping <script> and javascript: payloads on /api/search",
+      "remediation_suggestion": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input."
+    },
+    "response_body": "{\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}"
+  },
+  {
+    "id": "dd5684c4",
+    "target": "http://127.0.0.1:8001/api/user/102",
+    "attack_type": "idor",
+    "attack_label": "IDOR",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation.",
+    "logs": [
+      "[2026-09-09T21:54:01.527286Z] Episode dd5684c4 initiated · scenario=idor · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 60a672cd\nAttack Type: IDOR\nTarget Endpoint: http://127.0.0.1:8001/api/user/102\nObservation: Initial: 200 | Re-test: 403\nMitigation Applied: Implement authentication (e.g.,",
+      "[recon] surface=/api/user/101 vuln=IDOR param=user_id",
+      "[exploit] GET http://127.0.0.1:8001/api/user/102 payload=—",
+      "[probe] initial status=200 body={\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}",
+      "[detection] threat=True type=IDOR confidence=0.97 findings=200 OK exposed confidential record with secret_token leak",
+      "[hardening] rule=block_unauthorized_idor action=Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=958ms"
+    ],
+    "timestamp": "2026-09-09T21:54:01.527272Z",
+    "duration_ms": 958,
+    "scenario": "idor",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/user/101",
+      "suspected_vulnerability": "IDOR",
+      "target_parameter": "user_id",
+      "recon_notes": "Discovered via probe /api/user/101 -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "IDOR",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK exposed confidential record with secret_token leak"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_unauthorized_idor",
+      "mitigation_action": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
+      "remediation_suggestion": "Implement robust authorization middleware validating caller claims against requested resource identifiers. Decouple private attributes (tokens, secret notes) from public serialization. Enforce RBAC on /api/user/* with Bearer token validation."
+    },
+    "response_body": "{\"id\":\"102\",\"name\":\"Bob\",\"role\":\"user\",\"secret_note\":\"bob-token-222\"}"
+  },
+  {
+    "id": "d5380161",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-09T21:54:03.547603Z] Episode d5380161 initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=928ms"
+    ],
+    "timestamp": "2026-09-09T21:54:03.547560Z",
+    "duration_ms": 928,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Discovered via probe /api/records?query=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "0100b7dc",
+    "target": "http://127.0.0.1:8001/api/checkout",
+    "attack_type": "business_logic",
+    "attack_label": "Business Logic Abuse",
+    "status": 200,
+    "retest_status": 400,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
+    "logs": [
+      "[2026-09-09T21:54:05.681006Z] Episode 0100b7dc initiated · scenario=business_logic · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: d01fcbcb\nAttack Type: Business Logic Abuse\nTarget Endpoint: http://127.0.0.1:8001/api/checkout\nObservation: Initial: 200 | Re-test: 400\nMitigation Applied: Implement stric",
+      "[recon] surface=/api/checkout vuln=Business Logic Abuse param=quantity, unit_price",
+      "[exploit] POST http://127.0.0.1:8001/api/checkout payload={\"item_id\": \"license_pro\", \"quantity\": -1, \"unit_price\": 250.0}",
+      "[probe] initial status=200 body={\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}",
+      "[detection] threat=True type=Business Logic Abuse confidence=0.96 findings=200 OK with negative total_billed indicates business logic bypass",
+      "[hardening] rule=block_business_logic_abuse action=Server validation rejecting non-positive quantity/price and price tampering",
+      "[patch] applied=True retest_status=400",
+      "[score] posture=100.0 duration=1014ms"
+    ],
+    "timestamp": "2026-09-09T21:54:05.680988Z",
+    "duration_ms": 1014,
+    "scenario": "business_logic",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/checkout",
+      "suspected_vulnerability": "Business Logic Abuse",
+      "target_parameter": "quantity, unit_price",
+      "recon_notes": "Discovered via probe /api/checkout -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Business Logic Abuse",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK with negative total_billed indicates business logic bypass"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_business_logic_abuse",
+      "mitigation_action": "Server validation rejecting non-positive quantity/price and price tampering",
+      "remediation_suggestion": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400."
+    },
+    "response_body": "{\"status\":\"order_confirmed\",\"item_id\":\"license_pro\",\"quantity\":-1,\"total_billed\":-250.0,\"message\":\"Order processed successfully\"}"
+  },
+  {
+    "id": "f71f1e1a",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
+    "logs": [
+      "[2026-09-09T21:54:07.875759Z] Episode f71f1e1a initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 2727de23\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=200 body={\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}",
+      "[detection] threat=True type=XSS confidence=0.97 findings=200 OK reflected unsanitized script payload indicates XSS",
+      "[hardening] rule=block_xss action=WAF stripping <script> and javascript: payloads on /api/search",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1088ms"
+    ],
+    "timestamp": "2026-09-09T21:54:07.875746Z",
+    "duration_ms": 1088,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": "PR Skipped: GITHUB_TOKEN or GITHUB_TARGET_REPO not configured",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "XSS",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_xss",
+      "mitigation_action": "WAF stripping <script> and javascript: payloads on /api/search",
+      "remediation_suggestion": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input."
+    },
+    "response_body": "{\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}"
+  },
+  {
+    "id": "8d69e457",
+    "target": "http://127.0.0.1:8001/api/transfer",
+    "attack_type": "csrf",
+    "attack_label": "CSRF",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer.",
+    "logs": [
+      "[2026-09-09T21:54:10.058086Z] Episode 8d69e457 initiated · scenario=csrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: f657e593\nAttack Type: CSRF\nTarget Endpoint: http://127.0.0.1:8001/api/transfer\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediation required - cont",
+      "[recon] surface=/api/transfer vuln=CSRF param=to, amount",
+      "[exploit] POST http://127.0.0.1:8001/api/transfer payload={\"to\": \"attacker\", \"amount\": 1000}",
+      "[probe] initial status=200 body={\"status\":\"transferred\",\"to\":\"attacker\",\"amount\":1000.0,\"message\":\"Transfer completed - CSRF not validated\"}",
+      "[detection] threat=True type=CSRF confidence=0.96 findings=200 OK transfer without CSRF token indicates CSRF",
+      "[hardening] rule=block_csrf action=CSRF token validation for /api/transfer",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1074ms"
+    ],
+    "timestamp": "2026-09-09T21:54:10.058071Z",
+    "duration_ms": 1074,
+    "scenario": "csrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/transfer",
+      "suspected_vulnerability": "CSRF",
+      "target_parameter": "to, amount",
+      "recon_notes": "Discovered via probe /api/transfer -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "CSRF",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK transfer without CSRF token indicates CSRF"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_csrf",
+      "mitigation_action": "CSRF token validation for /api/transfer",
+      "remediation_suggestion": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer."
+    },
+    "response_body": "{\"status\":\"transferred\",\"to\":\"attacker\",\"amount\":1000.0,\"message\":\"Transfer completed - CSRF not validated\"}"
+  },
+  {
+    "id": "fa2ea7c7",
+    "target": "http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/",
+    "attack_type": "ssrf",
+    "attack_label": "SSRF",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch.",
+    "logs": [
+      "[2026-09-09T21:54:12.200094Z] Episode fa2ea7c7 initiated · scenario=ssrf · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 4a6efb57\nAttack Type: SSRF\nTarget Endpoint: http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/\nObservation: Initial: 404 | Re-test: None\nMitigati",
+      "[recon] surface=/api/fetch vuln=SSRF param=url",
+      "[exploit] GET http://127.0.0.1:8001/api/fetch?url=http://169.254.169.254/latest/meta-data/ payload=—",
+      "[probe] initial status=200 body={\"url\":\"http://169.254.169.254/latest/meta-data/\",\"content\":\"ami-id: ami-123456, secret: MASTER_SECRET_KEY_XYZ999, role: admin\",\"leaked\":true}",
+      "[detection] threat=True type=SSRF confidence=0.97 findings=200 OK leaked internal metadata via SSRF",
+      "[hardening] rule=block_ssrf action=SSRF allowlist for /api/fetch",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1039ms"
+    ],
+    "timestamp": "2026-09-09T21:54:12.200070Z",
+    "duration_ms": 1039,
+    "scenario": "ssrf",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/fetch",
+      "suspected_vulnerability": "SSRF",
+      "target_parameter": "url",
+      "recon_notes": "Discovered via probe /api/fetch?url=http://example.com -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SSRF",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK leaked internal metadata via SSRF"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_ssrf",
+      "mitigation_action": "SSRF allowlist for /api/fetch",
+      "remediation_suggestion": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch."
+    },
+    "response_body": "{\"url\":\"http://169.254.169.254/latest/meta-data/\",\"content\":\"ami-id: ami-123456, secret: MASTER_SECRET_KEY_XYZ999, role: admin\",\"leaked\":true}"
+  },
+  {
+    "id": "763c9667",
+    "target": "http://127.0.0.1:8001/api/login",
+    "attack_type": "broken_auth",
+    "attack_label": "Broken Authentication",
+    "status": 200,
+    "retest_status": 401,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin.",
+    "logs": [
+      "[2026-09-09T21:54:14.377533Z] Episode 763c9667 initiated · scenario=broken_auth · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 82f09dc1\nAttack Type: Broken Authentication\nTarget Endpoint: http://127.0.0.1:8001/api/login\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediation r",
+      "[recon] surface=/api/login vuln=Broken Authentication param=username, password",
+      "[exploit] POST http://127.0.0.1:8001/api/login payload={\"username\": \"admin\", \"password\": \"wrongpass\"}",
+      "[probe] initial status=200 body={\"status\":\"authenticated\",\"user\":\"admin\",\"token\":\"admin-bypass-token\",\"vulnerable\":true}",
+      "[detection] threat=True type=Broken Authentication confidence=0.96 findings=200 OK admin authenticated with wrong password indicates broken auth",
+      "[hardening] rule=block_broken_auth action=Authentication enforcement for /api/login",
+      "[patch] applied=True retest_status=401",
+      "[score] posture=100.0 duration=1063ms"
+    ],
+    "timestamp": "2026-09-09T21:54:14.377525Z",
+    "duration_ms": 1063,
+    "scenario": "broken_auth",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/login",
+      "suspected_vulnerability": "Broken Authentication",
+      "target_parameter": "username, password",
+      "recon_notes": "Discovered via probe /api/login -> 405"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Broken Authentication",
+      "confidence_score": 0.96,
+      "technical_findings": "200 OK admin authenticated with wrong password indicates broken auth"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_broken_auth",
+      "mitigation_action": "Authentication enforcement for /api/login",
+      "remediation_suggestion": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin."
+    },
+    "response_body": "{\"status\":\"authenticated\",\"user\":\"admin\",\"token\":\"admin-bypass-token\",\"vulnerable\":true}"
+  },
+  {
+    "id": "5601c13f",
+    "target": "http://127.0.0.1:8001/api/debug",
+    "attack_type": "misconfig",
+    "attack_label": "Security Misconfiguration",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication.",
+    "logs": [
+      "[2026-09-09T21:54:16.627326Z] Episode 5601c13f initiated · scenario=misconfig · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 944e4a41\nAttack Type: Security Misconfiguration\nTarget Endpoint: http://127.0.0.1:8001/api/debug\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: No remediati",
+      "[recon] surface=/api/debug vuln=Security Misconfiguration param=none",
+      "[exploit] GET http://127.0.0.1:8001/api/debug payload=—",
+      "[probe] initial status=200 body={\"debug\":true,\"env\":{\"SECRET_KEY\":\"MASTER_SECRET_KEY_XYZ999\",\"DB_PASSWORD\":\"supersecret123\",\"DEBUG\":\"true\"},\"stack\":\"File 'target_app.py' line 42 ...\",\"vulnerable\":true}",
+      "[detection] threat=True type=Security Misconfiguration confidence=0.95 findings=200 OK debug endpoint leaks secrets",
+      "[hardening] rule=block_misconfig action=Disable /api/debug in production",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1154ms"
+    ],
+    "timestamp": "2026-09-09T21:54:16.627314Z",
+    "duration_ms": 1154,
+    "scenario": "misconfig",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/debug",
+      "suspected_vulnerability": "Security Misconfiguration",
+      "target_parameter": "none",
+      "recon_notes": "Discovered via probe /api/debug -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "Security Misconfiguration",
+      "confidence_score": 0.95,
+      "technical_findings": "200 OK debug endpoint leaks secrets"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_misconfig",
+      "mitigation_action": "Disable /api/debug in production",
+      "remediation_suggestion": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication."
+    },
+    "response_body": "{\"debug\":true,\"env\":{\"SECRET_KEY\":\"MASTER_SECRET_KEY_XYZ999\",\"DB_PASSWORD\":\"supersecret123\",\"DEBUG\":\"true\"},\"stack\":\"File 'target_app.py' line 42 ...\",\"vulnerable\":true}"
+  },
+  {
+    "id": "4c0a2e07",
+    "target": "http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- ",
+    "attack_type": "sql_injection",
+    "attack_label": "SQL Injection",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
+    "logs": [
+      "[2026-09-09T22:18:51.863794Z] Episode 4c0a2e07 initiated · scenario=sql_injection · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 7b1e0d8f\nAttack Type: SQL Injection\nTarget Endpoint: http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users -- \nObservation: Initial: 200",
+      "[recon] surface=/api/records vuln=SQL Injection param=query",
+      "[exploit] GET http://127.0.0.1:8001/api/records?query=' UNION SELECT id, name, secret_token FROM users --  payload=—",
+      "[probe] initial status=200 body=[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-tok",
+      "[detection] threat=True type=SQL Injection confidence=0.98 findings=200 OK leaked user tokens via UNION SELECT injection",
+      "[hardening] rule=block_sql_injection action=WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1513ms"
+    ],
+    "timestamp": "2026-09-09T22:18:51.863777Z",
+    "duration_ms": 1513,
+    "scenario": "sql_injection",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": null,
+    "recon_data": {
+      "target_surface": "/api/records",
+      "suspected_vulnerability": "SQL Injection",
+      "target_parameter": "query",
+      "recon_notes": "Discovered via probe /api/records?query=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "SQL Injection",
+      "confidence_score": 0.98,
+      "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_sql_injection",
+      "mitigation_action": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
+      "remediation_suggestion": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user."
+    },
+    "response_body": "[{\"id\":1,\"patient_name\":\"John Doe\",\"diagnosis\":\"Hypertension\"},{\"id\":2,\"patient_name\":\"Jane Smith\",\"diagnosis\":\"Diabetes\"},{\"id\":3,\"patient_name\":\"Bob\",\"diagnosis\":\"Routine Checkup\"},{\"id\":\"101\",\"patient_name\":\"Alice\",\"diagnosis\":\"alice-token-111\"},{\"id\":\"102\",\"patient_name\":\"Bob\",\"diagnosis\":\"bob-token-222\"},{\"id\":\"999\",\"patient_name\":\"Admin\",\"diagnosis\":\"MASTER_SECRET_KEY_XYZ999\"}]"
+  },
+  {
+    "id": "5ddd9035",
+    "target": "http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>",
+    "attack_type": "xss",
+    "attack_label": "XSS",
+    "status": 200,
+    "retest_status": 403,
+    "patch_applied": true,
+    "threat_flag": true,
+    "score": 100.0,
+    "remediation": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
+    "logs": [
+      "[2026-09-09T22:18:53.273072Z] Episode 5ddd9035 initiated · scenario=xss · target=http://127.0.0.1:8001",
+      "[memory] Context retrieved: Episode: 2727de23\nAttack Type: XSS\nTarget Endpoint: http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script>\nObservation: Initial: 404 | Re-test: None\nMitigation Applied: N",
+      "[recon] surface=/api/search vuln=XSS param=q",
+      "[exploit] GET http://127.0.0.1:8001/api/search?q=<script>alert('xss')</script> payload=—",
+      "[probe] initial status=200 body={\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}",
+      "[detection] threat=True type=XSS confidence=0.97 findings=200 OK reflected unsanitized script payload indicates XSS",
+      "[hardening] rule=block_xss action=WAF stripping <script> and javascript: payloads on /api/search",
+      "[patch] applied=True retest_status=403",
+      "[score] posture=100.0 duration=1293ms"
+    ],
+    "timestamp": "2026-09-09T22:18:53.273051Z",
+    "duration_ms": 1293,
+    "scenario": "xss",
+    "base_url": "http://127.0.0.1:8001",
+    "pr_url": "PR Skipped: GITHUB_TOKEN or GITHUB_TARGET_REPO not configured",
+    "recon_data": {
+      "target_surface": "/api/search",
+      "suspected_vulnerability": "XSS",
+      "target_parameter": "q",
+      "recon_notes": "Discovered via probe /api/search?q=test -> 200"
+    },
+    "detection_report": {
+      "threat_detected": true,
+      "vulnerability_type": "XSS",
+      "confidence_score": 0.97,
+      "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"
+    },
+    "hardening_plan": {
+      "target_rule_name": "block_xss",
+      "mitigation_action": "WAF stripping <script> and javascript: payloads on /api/search",
+      "remediation_suggestion": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input."
+    },
+    "response_body": "{\"query\":\"<script>alert('xss')</script>\",\"result\":\"Results for: <script>alert('xss')</script>\",\"html\":\"<div>Search: <script>alert('xss')</script></div>\"}"
   }
 ]
