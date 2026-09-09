@@ -89,19 +89,22 @@ def create_security_pr(file_path: str, patched_code: str, vuln_name: str, episod
         # Otherwise if it looks like a full file (contains imports/SECURITY_RULES), use as is
         is_full_file = "import sqlite3" in patched_code or "SECURITY_RULES" in patched_code or patched_code.count("\n") > 50
         if not is_full_file and file_path == "target_app.py" and "def search_xss" in patched_code:
-            # Replace the vulnerable function block in the original file
-            import re
-            # Pattern to match the entire search_xss function (from @app.get to next @app or end)
-            # Use simple string replacement for predictability
+            # Replace only the search_xss function, preserving TransferPayload and other code
             vuln_start = original_full.find('@app.get("/api/search")')
             if vuln_start != -1:
-                # Find next @app or end of file after start
-                next_app = original_full.find("\n@app.", vuln_start + 1)
-                if next_app == -1:
-                    next_app = len(original_full)
+                # The search_xss function ends right before "class TransferPayload" (which follows it)
+                # Find that class to preserve it
+                transfer_start = original_full.find("\nclass TransferPayload", vuln_start)
+                if transfer_start != -1:
+                    next_boundary = transfer_start
+                else:
+                    # Fallback: find next @app after the function
+                    next_boundary = original_full.find("\n@app.", vuln_start + 1)
+                    if next_boundary == -1:
+                        next_boundary = len(original_full)
                 # Construct full patched content
                 before = original_full[:vuln_start]
-                after = original_full[next_app:]
+                after = original_full[next_boundary:]
                 # Ensure html import exists in full file
                 if "import html" not in before and "import html" not in patched_code:
                     if "import sqlite3" in before:
