@@ -25,17 +25,26 @@ function apiUrl(path: string) {
 }
 const API_DISPLAY = API_BASE || "/api";
 
-// Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic/xss)
-// but legacy records or raw vulnerability_target like "SQL Injection" are mapped for UI rendering
+// Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic/xss/csrf/ssrf/broken_auth/misconfig)
 function normalizeAttackKey(raw: string): ScenarioKey | null {
   if (!raw) return null;
   const k = raw.trim().toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
   if (k === "idor") return "idor";
   if (k === "sql_injection" || raw.toLowerCase() === "sql injection") return "sql_injection";
   if (k === "business_logic_abuse" || k === "business_logic" || raw.toLowerCase() === "business logic abuse") return "business_logic";
-  if (k === "xss" || k === "cross_site_scripting" || raw.toLowerCase().includes("cross") || raw.toLowerCase() === "xss") return "xss";
+  if (k === "xss" || k === "cross_site_scripting" || raw.toLowerCase() === "xss") return "xss";
+  if (k === "csrf" || k === "cross_site_request_forgery") return "csrf";
+  if (k === "ssrf" || k === "server_side_request_forgery") return "ssrf";
+  if (k === "broken_authentication" || k === "broken_auth") return "broken_auth";
+  if (k === "security_misconfiguration" || k === "misconfig" || k === "misconfiguration") return "misconfig";
   // already correct keys
-  if (raw === "idor" || raw === "sql_injection" || raw === "business_logic" || raw === "xss") return raw as ScenarioKey;
+  if (raw === "idor" || raw === "sql_injection" || raw === "business_logic" || raw === "xss" || raw === "csrf" || raw === "ssrf" || raw === "broken_auth" || raw === "misconfig") return raw as ScenarioKey;
+  // handle labels like "CSRF", "SSRF"
+  const low = raw.toLowerCase();
+  if (low === "csrf") return "csrf";
+  if (low === "ssrf") return "ssrf";
+  if (low.includes("broken")) return "broken_auth";
+  if (low.includes("misconfig")) return "misconfig";
   return null;
 }
 
@@ -62,7 +71,7 @@ interface Episode {
   response_body?: string;
 }
 
-type ScenarioKey = "idor" | "sql_injection" | "business_logic" | "xss";
+type ScenarioKey = "idor" | "sql_injection" | "business_logic" | "xss" | "csrf" | "ssrf" | "broken_auth" | "misconfig";
 
 const SCENARIOS: Record<
   ScenarioKey,
@@ -95,6 +104,34 @@ const SCENARIOS: Record<
     owasp: "A03:2021",
     severity: "critical",
     desc: "Reflected script injection",
+  },
+  csrf: {
+    label: "CSRF",
+    short: "CSRF",
+    owasp: "A01:2021",
+    severity: "high",
+    desc: "Missing CSRF token validation",
+  },
+  ssrf: {
+    label: "SSRF",
+    short: "SSRF",
+    owasp: "A10:2021",
+    severity: "critical",
+    desc: "Internal URL fetch abuse",
+  },
+  broken_auth: {
+    label: "Broken Authentication",
+    short: "Auth",
+    owasp: "A07:2021",
+    severity: "critical",
+    desc: "Login bypass with weak auth",
+  },
+  misconfig: {
+    label: "Security Misconfiguration",
+    short: "Misconf",
+    owasp: "A05:2021",
+    severity: "medium",
+    desc: "Debug endpoint exposure",
   },
 };
 

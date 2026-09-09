@@ -33,6 +33,14 @@ def _fallback_recon(scenario: str):
         return {"target_surface": "/api/checkout", "suspected_vulnerability": "Business Logic Abuse", "target_parameter": "quantity, unit_price", "recon_notes": "Order processing calculation route"}
     elif scenario == "xss":
         return {"target_surface": "/api/search", "suspected_vulnerability": "XSS", "target_parameter": "q", "recon_notes": "Reflected search parameter without sanitization"}
+    elif scenario == "csrf":
+        return {"target_surface": "/api/transfer", "suspected_vulnerability": "CSRF", "target_parameter": "to, amount", "recon_notes": "State-changing POST without CSRF token"}
+    elif scenario == "ssrf":
+        return {"target_surface": "/api/fetch", "suspected_vulnerability": "SSRF", "target_parameter": "url", "recon_notes": "Server-side fetch of user-supplied URL"}
+    elif scenario == "broken_auth":
+        return {"target_surface": "/api/login", "suspected_vulnerability": "Broken Authentication", "target_parameter": "username, password", "recon_notes": "Login bypass with any password for admin"}
+    elif scenario == "misconfig":
+        return {"target_surface": "/api/debug", "suspected_vulnerability": "Security Misconfiguration", "target_parameter": "none", "recon_notes": "Debug endpoint exposing secrets"}
     else:
         return {"target_surface": "/api/user/102", "suspected_vulnerability": "IDOR", "target_parameter": "user_id", "recon_notes": "Direct object identifier parameter"}
 
@@ -62,6 +70,38 @@ def _fallback_attack_plan(scenario: str, base_url: str, vuln: str):
             "payload_json": None,
             "hypothesis": "Reflected XSS via unsanitized q parameter"
         }
+    elif vuln == "CSRF" or scenario == "csrf":
+        return {
+            "vulnerability_target": "CSRF",
+            "target_endpoint": f"{base_url}/api/transfer",
+            "http_method": "POST",
+            "payload_json": json.dumps({"to": "attacker", "amount": 1000}),
+            "hypothesis": "Missing CSRF token allows forged transfer"
+        }
+    elif vuln == "SSRF" or scenario == "ssrf":
+        return {
+            "vulnerability_target": "SSRF",
+            "target_endpoint": f"{base_url}/api/fetch?url=http://169.254.169.254/latest/meta-data/",
+            "http_method": "GET",
+            "payload_json": None,
+            "hypothesis": "Server fetches internal metadata URL"
+        }
+    elif vuln == "Broken Authentication" or scenario == "broken_auth":
+        return {
+            "vulnerability_target": "Broken Authentication",
+            "target_endpoint": f"{base_url}/api/login",
+            "http_method": "POST",
+            "payload_json": json.dumps({"username": "admin", "password": "wrongpass"}),
+            "hypothesis": "Any password authenticates admin"
+        }
+    elif vuln == "Security Misconfiguration" or scenario == "misconfig":
+        return {
+            "vulnerability_target": "Security Misconfiguration",
+            "target_endpoint": f"{base_url}/api/debug",
+            "http_method": "GET",
+            "payload_json": None,
+            "hypothesis": "Debug endpoint leaks secrets"
+        }
     else:
         return {
             "vulnerability_target": "IDOR",
@@ -83,6 +123,16 @@ def _fallback_detection(url: str, status: int, body: str, payload: str = ""):
         return {"threat_detected": True, "vulnerability_type": "SQL Injection", "confidence_score": 0.98, "technical_findings": "200 OK leaked user tokens via UNION SELECT injection"}
     if status == 200 and "/api/search" in url_l and ("<script" in body_l or "&lt;script" in body_l or "alert('xss')" in body_l):
         return {"threat_detected": True, "vulnerability_type": "XSS", "confidence_score": 0.97, "technical_findings": "200 OK reflected unsanitized script payload indicates XSS"}
+    if status == 200 and "/api/transfer" in url_l and "transferred" in body_l:
+        return {"threat_detected": True, "vulnerability_type": "CSRF", "confidence_score": 0.96, "technical_findings": "200 OK transfer without CSRF token indicates CSRF"}
+    if status == 200 and "/api/fetch" in url_l and ("leaked" in body_l or "secret" in body_l or "ami-id" in body_l):
+        return {"threat_detected": True, "vulnerability_type": "SSRF", "confidence_score": 0.97, "technical_findings": "200 OK leaked internal metadata via SSRF"}
+    if status == 200 and "/api/login" in url_l and ("bypass-token" in body_l or "authenticated" in body_l) and status == 200:
+        # Broken auth: any password succeeded for admin
+        if "bypass" in body_l or "admin-bypass" in body_l:
+            return {"threat_detected": True, "vulnerability_type": "Broken Authentication", "confidence_score": 0.96, "technical_findings": "200 OK admin authenticated with wrong password indicates broken auth"}
+    if status == 200 and "/api/debug" in url_l and ("secret_key" in body_l or "debug" in body_l):
+        return {"threat_detected": True, "vulnerability_type": "Security Misconfiguration", "confidence_score": 0.95, "technical_findings": "200 OK debug endpoint leaks secrets"}
     if 400 <= status <= 499:
         return {"threat_detected": False, "vulnerability_type": "None", "confidence_score": 0.92, "technical_findings": f"{status} correctly blocked - boundary enforced"}
     # fallback based on status 200 generally is threat if not 4xx and endpoint matches scenario
@@ -98,6 +148,15 @@ def _fallback_detection(url: str, status: int, body: str, payload: str = ""):
         if "/api/search" in url_l:
             if "<script" in body_l:
                 return {"threat_detected": True, "vulnerability_type": "XSS", "confidence_score": 0.95, "technical_findings": "200 OK reflected XSS payload"}
+        if "/api/transfer" in url_l:
+            return {"threat_detected": True, "vulnerability_type": "CSRF", "confidence_score": 0.90, "technical_findings": "200 OK CSRF transfer succeeded"}
+        if "/api/fetch" in url_l:
+            return {"threat_detected": True, "vulnerability_type": "SSRF", "confidence_score": 0.90, "technical_findings": "200 OK SSRF leaked"}
+        if "/api/login" in url_l:
+            if "bypass" in body_l:
+                return {"threat_detected": True, "vulnerability_type": "Broken Authentication", "confidence_score": 0.90, "technical_findings": "200 OK broken auth bypass"}
+        if "/api/debug" in url_l:
+            return {"threat_detected": True, "vulnerability_type": "Security Misconfiguration", "confidence_score": 0.90, "technical_findings": "200 OK misconfig leak"}
     return {"threat_detected": False, "vulnerability_type": "None", "confidence_score": 0.7, "technical_findings": "No clear threat pattern - requires manual triage"}
 
 def _fallback_hardening(threat_detected: bool, vuln_type: str):
@@ -106,6 +165,10 @@ def _fallback_hardening(threat_detected: bool, vuln_type: str):
         "SQL Injection": "block_sql_injection",
         "Business Logic Abuse": "block_business_logic_abuse",
         "XSS": "block_xss",
+        "CSRF": "block_csrf",
+        "SSRF": "block_ssrf",
+        "Broken Authentication": "block_broken_auth",
+        "Security Misconfiguration": "block_misconfig",
     }
     if not threat_detected:
         return {
@@ -119,12 +182,20 @@ def _fallback_hardening(threat_detected: bool, vuln_type: str):
         "block_sql_injection": "Refactor database query handler from dynamic string concatenation to parameterized queries / ORM prepared statements. Implement input sanitization rejecting union/select patterns. Enforce least privilege on DB user.",
         "block_business_logic_abuse": "Add strict server-side schema invariants ensuring quantity is strictly positive (>0) and total price matches authoritative catalog pricing rather than client-submitted payloads. Reject non-positive quantities with 400.",
         "block_xss": "Implement output encoding and Content Security Policy. Sanitize q parameter by escaping < > & characters and stripping <script> tags. Enforce allowlist for search input.",
+        "block_csrf": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer.",
+        "block_ssrf": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch.",
+        "block_broken_auth": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin.",
+        "block_misconfig": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication.",
     }
     actions = {
         "block_unauthorized_idor": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
         "block_sql_injection": "WAF token filtering for SQL metadata (', --, union, select) on /api/records",
         "block_business_logic_abuse": "Server validation rejecting non-positive quantity/price and price tampering",
         "block_xss": "WAF stripping <script> and javascript: payloads on /api/search",
+        "block_csrf": "CSRF token validation for /api/transfer",
+        "block_ssrf": "SSRF allowlist for /api/fetch",
+        "block_broken_auth": "Authentication enforcement for /api/login",
+        "block_misconfig": "Disable /api/debug in production",
     }
     return {
         "target_rule_name": rule,
@@ -207,6 +278,30 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
             "Set target_surface to '/api/search', suspected_vulnerability to 'XSS', "
             "target_parameter to 'q', recon_notes to 'Reflected search without sanitization'."
         )
+    elif scenario == "csrf":
+        instruction = (
+            "Target route is '/api/transfer'. "
+            "Set target_surface to '/api/transfer', suspected_vulnerability to 'CSRF', "
+            "target_parameter to 'to, amount', recon_notes to 'State-changing POST without CSRF'."
+        )
+    elif scenario == "ssrf":
+        instruction = (
+            "Target route is '/api/fetch'. "
+            "Set target_surface to '/api/fetch', suspected_vulnerability to 'SSRF', "
+            "target_parameter to 'url', recon_notes to 'User-supplied URL fetch'."
+        )
+    elif scenario == "broken_auth":
+        instruction = (
+            "Target route is '/api/login'. "
+            "Set target_surface to '/api/login', suspected_vulnerability to 'Broken Authentication', "
+            "target_parameter to 'username, password', recon_notes to 'Auth bypass with any password'."
+        )
+    elif scenario == "misconfig":
+        instruction = (
+            "Target route is '/api/debug'. "
+            "Set target_surface to '/api/debug', suspected_vulnerability to 'Security Misconfiguration', "
+            "target_parameter to 'none', recon_notes to 'Debug endpoint leaking secrets'."
+        )
     else:
         instruction = (
             "Target route is '/api/user/102'. "
@@ -261,6 +356,38 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
                 "Formulate XSS validation request on endpoint: {base_url}/api/search?q=<script>alert('xss')</script> . "
                 "Set vulnerability_target to 'XSS'. "
                 "Set target_endpoint to \"{base_url}/api/search?q=<script>alert('xss')</script>\". "
+                "Set http_method to 'GET'. "
+                "Set payload_json to null."
+            )
+        elif vuln == "CSRF":
+            instruction = (
+                "Formulate CSRF validation request on endpoint: {base_url}/api/transfer. "
+                "Set vulnerability_target to 'CSRF'. "
+                "Set target_endpoint to '{base_url}/api/transfer'. "
+                "Set http_method to 'POST'. "
+                "Set payload_json to '{\"to\": \"attacker\", \"amount\": 1000}'."
+            )
+        elif vuln == "SSRF":
+            instruction = (
+                "Formulate SSRF validation request on endpoint: {base_url}/api/fetch?url=http://169.254.169.254/latest/meta-data/. "
+                "Set vulnerability_target to 'SSRF'. "
+                "Set target_endpoint to '{base_url}/api/fetch?url=http://169.254.169.254/latest/meta-data/'. "
+                "Set http_method to 'GET'. "
+                "Set payload_json to null."
+            )
+        elif vuln == "Broken Authentication":
+            instruction = (
+                "Formulate Broken Auth request on endpoint: {base_url}/api/login. "
+                "Set vulnerability_target to 'Broken Authentication'. "
+                "Set target_endpoint to '{base_url}/api/login'. "
+                "Set http_method to 'POST'. "
+                "Set payload_json to '{\"username\": \"admin\", \"password\": \"wrongpass\"}'."
+            )
+        elif vuln == "Security Misconfiguration":
+            instruction = (
+                "Formulate Misconfig request on endpoint: {base_url}/api/debug. "
+                "Set vulnerability_target to 'Security Misconfiguration'. "
+                "Set target_endpoint to '{base_url}/api/debug'. "
                 "Set http_method to 'GET'. "
                 "Set payload_json to null."
             )

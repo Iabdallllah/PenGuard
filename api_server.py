@@ -69,14 +69,27 @@ VULN_TO_SCENARIO = {
     "xss": "xss",
     "cross site scripting": "xss",
     "cross-site scripting": "xss",
+    "csrf": "csrf",
+    "cross site request forgery": "csrf",
+    "ssrf": "ssrf",
+    "server side request forgery": "ssrf",
+    "broken authentication": "broken_auth",
+    "broken_auth": "broken_auth",
+    "security misconfiguration": "misconfig",
+    "misconfig": "misconfig",
+    "misconfiguration": "misconfig",
 }
 SCENARIO_TO_LABEL = {
     "idor": "IDOR",
     "sql_injection": "SQL Injection",
     "business_logic": "Business Logic Abuse",
     "xss": "XSS",
+    "csrf": "CSRF",
+    "ssrf": "SSRF",
+    "broken_auth": "Broken Authentication",
+    "misconfig": "Security Misconfiguration",
 }
-ALLOWED_SCENARIOS = {"idor", "sql_injection", "business_logic", "xss"}
+ALLOWED_SCENARIOS = {"idor", "sql_injection", "business_logic", "xss", "csrf", "ssrf", "broken_auth", "misconfig"}
 # Production: TARGET_URL env (e.g. https://purple-target.onrender.com) or fallback to local TARGET_PORT
 TARGET_URL_ENV = os.getenv("TARGET_URL", "").strip()
 TARGET_PORT_ENV = os.getenv("TARGET_PORT", "8001")
@@ -145,6 +158,10 @@ def list_scenarios():
         {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
         {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
         {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021"},
+        {"key": "csrf", "label": "Cross-Site Request Forgery (CSRF)", "owasp": "A01:2021"},
+        {"key": "ssrf", "label": "Server-Side Request Forgery (SSRF)", "owasp": "A10:2021"},
+        {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021"},
+        {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021"},
     ]
 
 @app.get("/api/episodes")
