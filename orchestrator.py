@@ -65,7 +65,7 @@ def _fallback_attack_plan(scenario: str, base_url: str, vuln: str):
     elif vuln == "XSS" or scenario == "xss":
         return {
             "vulnerability_target": "XSS",
-            "target_endpoint": f"{base_url}/api/search?q=<script>alert('xss')</script>",
+            "target_endpoint": f"{base_url}/api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E",
             "http_method": "GET",
             "payload_json": None,
             "hypothesis": "Reflected XSS via unsanitized q parameter"
@@ -423,9 +423,9 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
             )
         elif vuln == "XSS":
             instruction = (
-                "Formulate XSS validation request on endpoint: {base_url}/api/search?q=<script>alert('xss')</script> . "
+                "Formulate XSS validation request on endpoint: {base_url}/api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E . "
                 "Set vulnerability_target to 'XSS'. "
-                "Set target_endpoint to \"{base_url}/api/search?q=<script>alert('xss')</script>\". "
+                "Set target_endpoint to \"{base_url}/api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E\". "
                 "Set http_method to 'GET'. "
                 "Set payload_json to null."
             )
