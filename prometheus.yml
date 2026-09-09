@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "penguard-api"
+    metrics_path: "/metrics"
+    # إذا كنت تسحب من Railway مباشرة ضع الدومين السحابي
+    # إذا كنت تشغله محلياً ضد الـ FastAPI استخدم host.docker.internal:8000
+    static_configs:
+      - targets: ["heroic-insight-production-d97d.up.railway.app:443"]
+    scheme: https

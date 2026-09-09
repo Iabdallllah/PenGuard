@@ -17,30 +17,21 @@ app = FastAPI(title="PenGuard API")
 
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-    has_instrumentator = True
-except ImportError:
-    has_instrumentator = False
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    Instrumentator().instrument(app)
+    print("[metrics] Prometheus instrumented")
+except Exception as _e:
+    print(f"[metrics] instrument failed: {_e}")
 
-    print("[metrics] prometheus_fastapi_instrumentator not found, fallback only")
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-if has_instrumentator:
-    try:
-        Instrumentator().instrument(app).expose(app, endpoint="/metrics")
-        print("[metrics] Prometheus /metrics exposed via instrumentator")
-    except Exception as _e:
-        print(f"[metrics] instrumentator expose failed: {_e}")
-        has_instrumentator = False
+# Register both /metrics and /api/metrics to cover any proxy prefix
+@app.get("/metrics", include_in_schema=False)
+@app.get("/api/metrics", include_in_schema=False)
+def metrics_endpoint():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-if not has_instrumentator:
-    # Fallback route guaranteed to never 404
-    @app.get("/metrics")
-    def get_metrics():
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-    print("[metrics] Fallback /metrics enabled")
+print("[metrics] /metrics and /api/metrics enabled")
 
 app.add_middleware(
     CORSMiddleware,
