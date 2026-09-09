@@ -574,6 +574,21 @@ export default function Dashboard() {
     }
   };
 
+  const clearHistory = async () => {
+    if (!confirm("مسح كل السجلات القديمة؟ لا يمكن التراجع.")) return;
+    try {
+      const res = await fetch(apiUrl("/api/episodes"), { method: "DELETE" });
+      if (res.ok) {
+        setEpisodes([]);
+        setActiveInspector(null);
+        setSearchQuery("");
+        await fetchEpisodes();
+      }
+    } catch (e) {
+      console.error("Clear failed", e);
+    }
+  };
+
   const downloadReport = () => {
     const link = document.createElement("a");
     link.href = apiUrl("/api/reports/compliance");
@@ -1585,6 +1600,14 @@ export default function Dashboard() {
                       </button>
                     ))}
                   </div>
+                  <button
+                    onClick={clearHistory}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-bold hover:bg-rose-500/20 transition-colors flex items-center gap-1.5 self-start sm:self-center"
+                    title="Clear all episode history"
+                  >
+                    <Icon.X className="w-3.5 h-3.5" />
+                    Clear
+                  </button>
                 </div>
               </div>
 

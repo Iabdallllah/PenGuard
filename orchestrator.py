@@ -246,6 +246,72 @@ class EpisodeState(TypedDict):
     posture_score: Optional[float]
     pr_url: Optional[str]
 
+def _crawl_and_discover(base_url: str, scenario: str) -> dict:
+    """Dynamic attack surface discovery — probes base_url to find real endpoint."""
+    # Map scenario to expected probes
+    probes = {
+        "idor": ["/api/user/101", "/api/user/102", "/api/user/me"],
+        "sql_injection": ["/api/records?query=test", "/api/records"],
+        "business_logic": ["/api/checkout"],
+        "xss": ["/api/search?q=test", "/api/search"],
+        "csrf": ["/api/transfer"],
+        "ssrf": ["/api/fetch?url=http://example.com", "/api/fetch"],
+        "broken_auth": ["/api/login"],
+        "misconfig": ["/api/debug", "/api/env", "/.env"],
+    }
+    headers = {"User-Agent": "PenGuard-Recon/1.0"}
+    discovered = None
+    notes = "Probed via dynamic recon"
+    # 1. Try scenario-specific probe
+    for path in probes.get(scenario, probes["idor"]):
+        try:
+            url = base_url.rstrip("/") + path
+            # For POST endpoints, try GET first to see if exists (405 is also existence)
+            r = requests.get(url, headers=headers, timeout=3, allow_redirects=False)
+            if r.status_code < 500:  # 200, 401, 403, 405 all indicate endpoint exists
+                discovered = path.split("?")[0]
+                notes = f"Discovered via probe {path} -> {r.status_code}"
+                break
+        except Exception:
+            continue
+    # 2. Fallback: crawl HTML for links/forms if nothing found (for external like voxorai.vercel.app)
+    if not discovered:
+        try:
+            r = requests.get(base_url, headers=headers, timeout=5)
+            if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(r.text, "html.parser")
+                    links = [a.get("href") for a in soup.find_all("a", href=True)][:10]
+                    forms = [f.get("action") for f in soup.find_all("form")][:5]
+                    inputs = [i.get("name") for i in soup.find_all("input") if i.get("name")][:5]
+                    if links or forms:
+                        discovered = (forms[0] if forms and forms[0] else links[0] if links else None) or probes.get(scenario, ["/api/user/102"])[0].split("?")[0]
+                        notes = f"Crawled HTML: links={links[:3]} forms={forms} inputs={inputs}"
+                except ImportError:
+                    pass
+        except Exception:
+            pass
+    # 3. Final fallback to hardcoded map
+    if not discovered:
+        return _fallback_recon(scenario)
+    # Build recon based on discovered
+    mapping = {
+        "/api/user": {"vuln": "IDOR", "param": "user_id"},
+        "/api/records": {"vuln": "SQL Injection", "param": "query"},
+        "/api/checkout": {"vuln": "Business Logic Abuse", "param": "quantity, unit_price"},
+        "/api/search": {"vuln": "XSS", "param": "q"},
+        "/api/transfer": {"vuln": "CSRF", "param": "to, amount"},
+        "/api/fetch": {"vuln": "SSRF", "param": "url"},
+        "/api/login": {"vuln": "Broken Authentication", "param": "username, password"},
+        "/api/debug": {"vuln": "Security Misconfiguration", "param": "none"},
+    }
+    for prefix, meta in mapping.items():
+        if discovered.startswith(prefix):
+            return {"target_surface": discovered, "suspected_vulnerability": meta["vuln"], "target_parameter": meta["param"], "recon_notes": notes}
+    # Generic
+    return {"target_surface": discovered, "suspected_vulnerability": _fallback_recon(scenario)["suspected_vulnerability"], "target_parameter": _fallback_recon(scenario)["target_parameter"], "recon_notes": notes}
+
 def memory_retrieval_node(state: EpisodeState) -> Dict[str, Any]:
     try:
         context = retrieve_past_context(f"{state['scenario']} security audit")
@@ -256,9 +322,12 @@ def memory_retrieval_node(state: EpisodeState) -> Dict[str, Any]:
 
 def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
     scenario = state.get("scenario", "idor")
+    base_url = state.get("target_url", "")
+    # Dynamic discovery: user provides only base_url + scenario, we discover sub-path automatically
+    discovered = _crawl_and_discover(base_url, scenario)
     # fallback deterministic if no LLM or on error
     if llm is None:
-        return {"recon_data": _fallback_recon(scenario)}
+        return {"recon_data": discovered}
 
     if scenario == "sql_injection":
         instruction = (
@@ -311,18 +380,19 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
 
     try:
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an automated Reconnaissance Agent (Red Agent 1). " + instruction),
-            ("human", "Target Base: {base_url}\nPast Records: {past_memory}\nProduce surface reconnaissance output:")
+            ("system", "You are an automated Reconnaissance Agent (Red Agent 1). " + instruction + f" Discovered via dynamic probe: {discovered}"),
+            ("human", "Target Base: {base_url}\nDiscovered Surface: {discovered}\nPast Records: {past_memory}\nProduce surface reconnaissance output:")
         ])
         structured_recon = llm.with_structured_output(ReconOutput)
         recon = (prompt | structured_recon).invoke({
-            "base_url": state["target_url"],
-            "past_memory": state["past_memory"]
+            "base_url": base_url,
+            "past_memory": state["past_memory"],
+            "discovered": json.dumps(discovered),
         })
         return {"recon_data": recon.model_dump()}
     except Exception as e:
         print(f"[recon] LLM failed, using fallback: {e}")
-        return {"recon_data": _fallback_recon(scenario)}
+        return {"recon_data": discovered}
 
 def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
     recon = state["recon_data"]

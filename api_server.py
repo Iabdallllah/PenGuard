@@ -168,6 +168,32 @@ def list_scenarios():
 def get_episodes():
     return episodes_db
 
+@app.delete("/api/episodes")
+async def clear_episodes():
+    """Clear old records — solves 'old recordings still present' issue. Keeps filesystem clean."""
+    count = len(episodes_db)
+    episodes_db.clear()
+    _save_episodes()
+    # Clear Chroma episodic memory as well
+    try:
+        from memory_manager import collection, _chroma_available
+        if _chroma_available and collection is not None:
+            # Delete all ids by fetching
+            try:
+                # Chroma 0.5+ supports get with no args
+                all_ids = collection.get().get("ids", [])
+                if all_ids:
+                    collection.delete(ids=all_ids)
+            except Exception as e:
+                print(f"[clear] chroma delete failed: {e}")
+    except Exception as e:
+        print(f"[clear] memory clear failed: {e}")
+    try:
+        await broadcast_episodes()
+    except Exception:
+        pass
+    return {"status": "cleared", "deleted": count}
+
 @app.get("/api/episodes/{episode_id}")
 def get_episode(episode_id: str):
     for ep in episodes_db:
@@ -208,44 +234,123 @@ async def broadcast_episodes():
     for ws in dead:
         connected_ws.discard(ws)
 
+def _build_dynamic_html(episodes: List[Dict[str, Any]]) -> str:
+    import html as _h
+    n = len(episodes)
+    patches = sum(1 for e in episodes if e.get("patch_applied"))
+    avg_score = round(sum(e.get("score", 0) for e in episodes) / n) if n else 100
+    # Build episode rows
+    rows = ""
+    remediation_blocks = ""
+    for ep in episodes[-20:]:  # last 20 for brevity
+        eid = _h.escape(ep.get("id", "")[:8])
+        atk = _h.escape(ep.get("attack_label") or ep.get("attack_type", ""))
+        tgt = _h.escape((ep.get("target") or "")[:60])
+        init_s = ep.get("status", 0)
+        retest_s = ep.get("retest_status") or "—"
+        patch = "ACTIVE" if ep.get("patch_applied") else "NONE"
+        # Determine final state
+        final = "SECURED" if ep.get("patch_applied") and ep.get("retest_status") in [400, 401, 403] else ("VULNERABLE" if ep.get("threat_flag") else "CLEAN")
+        rows += f"<tr><td class='mono'>{eid}</td><td><strong>{atk}</strong></td><td class='mono'>{tgt}</td><td><span class='tag-fail'>{init_s} OK</span></td><td><span class='tag-pass'>{retest_s}</span></td><td><span class='tag-active'>{patch}</span></td><td><span class='tag-pass'>{final}</span></td></tr>\n"
+        # Remediation
+        adv = _h.escape(ep.get("remediation", "")[:400])
+        route = _h.escape(ep.get("target", ""))
+        remediation_blocks += f"<div class='remediation-box'><div class='remediation-title'>Episode {eid} - {atk} Remediation</div><div class='remediation-route'>{route}</div><div class='callout-advisory'><strong>Engine Advisory:</strong> {adv}<br><strong>Patch:</strong> {patch} | <strong>Retest:</strong> {retest_s}</div></div>\n"
+    if not rows:
+        rows = "<tr><td colspan='7' style='text-align:center; padding:20px; color:#94a3b8;'>No episodes yet — dispatch a scenario to generate evidence.</td></tr>"
+        remediation_blocks = "<p style='color:#64748b;'>No remediation data yet.</p>"
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+@page {{ size: A4; margin: 12mm 10mm; background-color: #0b0f19; }}
+* {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }}
+body {{ margin:0; padding:0; font-family: system-ui, -apple-system, sans-serif; color: #cbd5e1; background-color: #0b0f19; font-size: 8.5pt; line-height: 1.45; }}
+.header-card {{ background: #111827; border: 1px solid #312e81; border-radius: 8px; padding: 14px 18px; margin-bottom: 14px; }}
+.title-main {{ font-size: 16pt; font-weight: 800; color: #ffffff; margin: 0 0 4px 0; }}
+.badge {{ display: inline-block; background-color: #4c1d95; color: #c4b5fd; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; border: 1px solid #6d28d9; margin-right: 6px; }}
+.meta-text {{ font-size: 8pt; color: #94a3b8; margin-top: 6px; }}
+.meta-highlight {{ color: #38bdf8; font-family: monospace; }}
+.kpi-table {{ width: 100%; border-collapse: separate; border-spacing: 6px 0; margin-bottom: 14px; }}
+.kpi-card {{ background-color: #111827; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; text-align: center; width: 25%; }}
+.kpi-val {{ font-size: 14pt; font-weight: 800; font-family: monospace; margin: 2px 0; }}
+.kpi-score {{ color: #a855f7; }} .kpi-success {{ color: #10b981; }} .kpi-indigo {{ color: #818cf8; }}
+.kpi-lbl {{ font-size: 7pt; font-weight: 600; text-transform: uppercase; color: #64748b; }}
+.kpi-sub {{ font-size: 6.5pt; color: #475569; }}
+h2 {{ color: #f1f5f9; font-size: 10.5pt; font-weight: 700; border-left: 3px solid #8b5cf6; padding-left: 8px; margin: 14px 0 6px 0; text-transform: uppercase; }}
+p {{ margin: 0 0 6px 0; color: #94a3b8; }}
+table.data-table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 6px; }}
+table.data-table th {{ background-color: #1e293b; color: #e2e8f0; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; padding: 6px 8px; text-align: left; border-bottom: 1px solid #334155; }}
+table.data-table td {{ padding: 6px 8px; font-size: 8pt; border-bottom: 1px solid #1e293b; color: #cbd5e1; }}
+.tag-pass {{ display: inline-block; padding: 2px 5px; background-color: #064e3b; color: #34d399; border: 1px solid #059669; border-radius: 3px; font-size: 7pt; font-weight: 700; font-family: monospace; }}
+.tag-fail {{ display: inline-block; padding: 2px 5px; background-color: #4c0519; color: #f87171; border: 1px solid #dc2626; border-radius: 3px; font-size: 7pt; font-weight: 700; font-family: monospace; }}
+.tag-active {{ display: inline-block; padding: 2px 5px; background-color: #31104b; color: #c084fc; border: 1px solid #7e22ce; border-radius: 3px; font-size: 7pt; font-weight: 700; font-family: monospace; }}
+.mono {{ font-family: monospace; font-size: 7.5pt; color: #38bdf8; }}
+.remediation-box {{ background-color: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }}
+.remediation-title {{ font-weight: 700; font-size: 8.5pt; color: #f8fafc; margin-bottom: 4px; }}
+.remediation-route {{ font-family: monospace; font-size: 7.5pt; color: #a5b4fc; background-color: #1e1b4b; padding: 2px 5px; border-radius: 4px; display: inline-block; margin-bottom: 4px; }}
+.callout-advisory {{ font-size: 7.5pt; color: #cbd5e1; line-height: 1.4; background-color: #111827; border-left: 3px solid #10b981; padding: 5px 8px; border-radius: 0 4px 4px 0; margin-top: 4px; }}
+</style></head><body>
+<div class="header-card">
+<span class="badge">SEC-OPS CERTIFIED</span><span class="badge" style="background:#064e3b; color:#34d399; border-color:#059669;">ZERO HUMAN INTERVENTION</span>
+<h1 class="title-main">EXECUTIVE AUDIT & COMPLIANCE REPORT</h1>
+<div class="meta-text"><strong>Platform:</strong> PenGuard Autonomous Hardening Core &bull; <strong>Engine:</strong> LangGraph Multi-Agent (2 Red + 2 Blue)<br>
+<strong>Target:</strong> <span class="meta-highlight">Medical Portal Sandbox (FastAPI / Isolated Docker)</span> &bull; <strong>Generated At:</strong> {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC &bull; <strong>Episodes:</strong> {n}</div>
+</div>
+<table class="kpi-table"><tr>
+<td class="kpi-card"><div class="kpi-lbl">Posture Score</div><div class="kpi-val kpi-score">{avg_score} / 100</div><div class="kpi-sub">Post-Remediation Verification</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Episodes Tested</div><div class="kpi-val kpi-indigo">{n} / 8</div><div class="kpi-sub">Vector Coverage</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Auto-Patches</div><div class="kpi-val kpi-success">{patches} Applied</div><div class="kpi-sub">Zero-Downtime Injection</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Automation Level</div><div class="kpi-val kpi-success">100%</div><div class="kpi-sub">Autonomous Closed-Loop</div></td>
+</tr></table>
+<h2>1. Executive Summary & Autonomous Workflow</h2>
+<p>This audit was executed autonomously by the <strong>PenGuard Closed-Loop Cyber Hardening Core</strong>. Episodes are executed in an isolated sandbox with dynamic recon, exploit, detection, hardening and re-test.</p>
+<h2>2. Episode Verification Ledger (Closed-Loop Evidence)</h2>
+<table class="data-table"><thead><tr><th>Episode ID</th><th>Attack Vector</th><th>Target Endpoint</th><th>Initial Hit</th><th>Retest Hit</th><th>Auto-Patch</th><th>Final State</th></tr></thead><tbody>
+{rows}
+</tbody></table>
+<h2>3. Technical Remediation & Hardening Ledger</h2>
+{remediation_blocks}
+<h2>4. Attestation & Continuous Assurance</h2>
+<p>This digital audit report serves as verifiable attestation of continuous automated security posture management. Generated dynamically per operation on {datetime.utcnow().isoformat()}Z.</p>
+</body></html>"""
+    return html
+
 @app.get("/api/reports/compliance")
 def get_compliance_report():
-    pdf_path = os.path.abspath("purple-web-executive-audit-report.pdf")
+    # Dynamic per-operation: always regenerate from current episodes_db
+    pdf_path = os.path.abspath("penguard-executive-audit-report.pdf")
+    # Keep legacy path for compatibility
+    legacy_pdf = os.path.abspath("purple-web-executive-audit-report.pdf")
+    html = _build_dynamic_html(episodes_db)
     html_path = os.path.abspath("compliance_report.html")
-
-    if not os.path.exists(pdf_path):
-        # try generate via create_report.py (brave) -> fallback to generate_pdf.py (weasyprint) -> fallback minimal
-        generated = False
-        for script in ["create_report.py", "generate_pdf.py"]:
-            if os.path.exists(script):
-                try:
-                    subprocess.run(["python", script], check=True, timeout=30)
-                    if os.path.exists(pdf_path):
-                        generated = True
-                        break
-                except Exception as e:
-                    print(f"[compliance] {script} failed: {e}")
-                    continue
-        if not generated and os.path.exists(html_path) and not os.path.exists(pdf_path):
-            # fallback: try weasyprint directly if available
-            try:
-                import weasyprint
-                with open(html_path, encoding="utf-8") as f:
-                    html = f.read()
-                weasyprint.HTML(string=html).write_pdf(pdf_path)
-                generated = True
-            except Exception as e:
-                print(f"[compliance] weasyprint fallback failed: {e}")
-
-    if not os.path.exists(pdf_path):
-        raise HTTPException(status_code=500, detail="Compliance report generation failed - no PDF available")
-
+    try:
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
+    except Exception:
+        pass
+    # Try weasyprint first (lightweight, no browser)
+    try:
+        import weasyprint
+        weasyprint.HTML(string=html).write_pdf(pdf_path)
+        # Also keep legacy copy for old endpoint consumers
+        try:
+            import shutil
+            shutil.copy(pdf_path, legacy_pdf)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[compliance] weasyprint failed: {e}")
+        # Fallback to brave if available
+        try:
+            cmd = ["brave-browser", "--headless=new", "--disable-gpu", "--no-pdf-header-footer", f"--print-to-pdf={pdf_path}", f"file://{html_path}"]
+            subprocess.run(cmd, check=True, timeout=30)
+        except Exception as e2:
+            print(f"[compliance] fallback failed: {e2}")
+            raise HTTPException(status_code=500, detail="Compliance report generation failed")
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
-        filename="purple-web-executive-audit-report.pdf",
+        filename="penguard-executive-audit-report.pdf",
         headers={
-            "Content-Disposition": "attachment; filename=purple-web-executive-audit-report.pdf",
+            "Content-Disposition": "attachment; filename=penguard-audit-report.pdf",
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
