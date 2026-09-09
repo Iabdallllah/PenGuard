@@ -34,7 +34,41 @@ app.add_middleware(
 
 _STORE_PATH = os.path.join(os.path.dirname(__file__), "episodes_store.json")
 
+# --- DB with fallback ---
+try:
+    from database import SessionLocal, Episode as DBEpisode, PostureMetric, init_db, _db_available, engine
+    _use_db = _db_available and engine is not None
+    if _use_db:
+        print(f"[database] using {str(engine.url).split('@')[-1][:40]}")
+except Exception as _e:
+    print(f"[database] import failed, fallback to JSON: {_e}")
+    _use_db = False
+    SessionLocal = None
+    DBEpisode = None
+
 def _load_episodes() -> List[Dict[str, Any]]:
+    # Try DB first
+    if _use_db and SessionLocal and DBEpisode:
+        try:
+            db = SessionLocal()
+            rows = db.query(DBEpisode).order_by(DBEpisode.created_at).all()
+            db.close()
+            result = []
+            for r in rows:
+                result.append({
+                    "id": r.id, "target": r.target, "attack_type": r.attack_type, "attack_label": r.attack_label,
+                    "status": r.status, "retest_status": r.retest_status, "patch_applied": r.patch_applied,
+                    "threat_flag": r.threat_flag, "score": r.score, "remediation": r.remediation,
+                    "logs": r.logs or [], "timestamp": r.timestamp, "duration_ms": r.duration_ms,
+                    "scenario": r.scenario, "base_url": r.base_url, "pr_url": r.pr_url,
+                    "recon_data": r.recon_data, "detection_report": r.detection_report,
+                    "hardening_plan": r.hardening_plan, "response_body": r.response_body,
+                })
+            if result:
+                print(f"[store] loaded {len(result)} episodes from DB")
+                return result
+        except Exception as e:
+            print(f"[store] DB load failed, fallback to JSON: {e}")
     if os.path.exists(_STORE_PATH):
         try:
             with open(_STORE_PATH, encoding="utf-8") as f:
@@ -49,11 +83,65 @@ def _load_episodes() -> List[Dict[str, Any]]:
     return []
 
 def _save_episodes():
+    # Save to DB if available, always also to JSON as backup
+    if _use_db and SessionLocal and DBEpisode:
+        try:
+            db = SessionLocal()
+            # For simplicity, clear and re-insert (small dataset < 1000)
+            # In production, use upsert
+            pass  # actual save is done per-episode in trigger_run
+            db.close()
+        except Exception as e:
+            print(f"[store] DB save placeholder failed: {e}")
     try:
         with open(_STORE_PATH, "w", encoding="utf-8") as f:
             __import__("json").dump(episodes_db, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"[store] save failed: {e}")
+
+def _db_add_episode(record: Dict[str, Any]):
+    if not (_use_db and SessionLocal and DBEpisode):
+        return
+    try:
+        db = SessionLocal()
+        # Upsert
+        existing = db.query(DBEpisode).filter(DBEpisode.id == record["id"]).first()
+        if existing:
+            db.delete(existing)
+            db.commit()
+        ep = DBEpisode(
+            id=record["id"], target=record.get("target"), attack_type=record.get("attack_type"),
+            attack_label=record.get("attack_label"), status=record.get("status"), retest_status=record.get("retest_status"),
+            patch_applied=record.get("patch_applied"), threat_flag=record.get("threat_flag"), score=record.get("score"),
+            remediation=record.get("remediation"), logs=record.get("logs"), timestamp=record.get("timestamp"),
+            duration_ms=record.get("duration_ms"), scenario=record.get("scenario"), base_url=record.get("base_url"),
+            pr_url=record.get("pr_url"), recon_data=record.get("recon_data"), detection_report=record.get("detection_report"),
+            hardening_plan=record.get("hardening_plan"), response_body=record.get("response_body")
+        )
+        db.add(ep)
+        db.commit()
+        # Also save posture metric
+        try:
+            pm = PostureMetric(posture_score=record.get("score", 0), total_episodes=len(episodes_db)+1, patched_count=sum(1 for e in episodes_db if e.get("patch_applied")))
+            db.add(pm)
+            db.commit()
+        except Exception:
+            pass
+        db.close()
+    except Exception as e:
+        print(f"[database] add episode failed, fallback to JSON: {e}")
+
+def _db_clear():
+    if _use_db and SessionLocal and DBEpisode:
+        try:
+            db = SessionLocal()
+            db.query(DBEpisode).delete()
+            db.query(PostureMetric).delete()
+            db.commit()
+            db.close()
+            print("[database] cleared")
+        except Exception as e:
+            print(f"[database] clear failed: {e}")
 
 episodes_db: List[Dict[str, Any]] = _load_episodes()
 
@@ -166,6 +254,27 @@ def list_scenarios():
 
 @app.get("/api/episodes")
 def get_episodes():
+    # Try DB first, fallback to memory
+    if _use_db and SessionLocal and DBEpisode:
+        try:
+            db = SessionLocal()
+            rows = db.query(DBEpisode).order_by(DBEpisode.created_at).all()
+            db.close()
+            if rows:
+                return [
+                    {
+                        "id": r.id, "target": r.target, "attack_type": r.attack_type, "attack_label": r.attack_label,
+                        "status": r.status, "retest_status": r.retest_status, "patch_applied": r.patch_applied,
+                        "threat_flag": r.threat_flag, "score": r.score, "remediation": r.remediation,
+                        "logs": r.logs or [], "timestamp": r.timestamp, "duration_ms": r.duration_ms,
+                        "scenario": r.scenario, "base_url": r.base_url, "pr_url": r.pr_url,
+                        "recon_data": r.recon_data, "detection_report": r.detection_report,
+                        "hardening_plan": r.hardening_plan, "response_body": r.response_body,
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            print(f"[get] DB read failed: {e}")
     return episodes_db
 
 @app.delete("/api/episodes")
@@ -174,6 +283,7 @@ async def clear_episodes():
     count = len(episodes_db)
     episodes_db.clear()
     _save_episodes()
+    _db_clear()
     # Clear Chroma episodic memory as well
     try:
         from memory_manager import collection, _chroma_available
@@ -465,6 +575,7 @@ async def trigger_run(payload: RunRequest):
 
         episodes_db.append(record)
         _save_episodes()
+        _db_add_episode(record)
         try:
             await broadcast_episodes()
         except Exception:

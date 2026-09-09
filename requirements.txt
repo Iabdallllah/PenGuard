@@ -16,3 +16,6 @@ groq==0.37.1
 weasyprint==69.0
 psutil==5.9.8
 PyGithub==2.3.0
+SQLAlchemy==2.0.30
+psycopg2-binary==2.9.9
+pg8000==1.31.0
