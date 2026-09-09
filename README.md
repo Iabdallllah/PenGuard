@@ -227,7 +227,7 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 
 | Dashboard | Grafana | PR |
 |---|---|---|
-| docs/screenshots/dashboard.png | docs/screenshots/grafana.png | docs/screenshots/pr.png |
+| 'docs/screenshots/dashboard.png' | 'docs/screenshots/grafana.png' | 'docs/screenshots/pr.png' |
 | *Place your screenshots here* | | |
 
 ---
