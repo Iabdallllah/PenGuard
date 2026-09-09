@@ -1,3 +1,4 @@
+import html
 import sqlite3
 import logging
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -180,10 +181,11 @@ async def search_records(query: str = "", request: Request = None):
 async def search_xss(q: str = "", request: Request = None):
     client_ip = request.client.host if request else "unknown"
     logger.info(f"Search XSS q='{q}' from {client_ip}")
-    # Vulnerable reflected XSS — echoes without sanitization
-    return {"query": q, "result": f"Results for: {q}", "html": f"<div>Search: {q}</div>"}
-
-# --- Additional OWASP vectors ---
+    # Patched: input filtering + output encoding (quote=True) to prevent reflected XSS
+    if "<script" in q.lower() or "onerror" in q.lower() or "javascript:" in q.lower():
+        raise HTTPException(status_code=400, detail="Invalid input: potential XSS detected")
+    safe_q = html.escape(q, quote=True)
+    return {"query": safe_q, "result": f"Results for: {safe_q}", "html": f"<div>Search: {safe_q}</div>"}
 class TransferPayload(BaseModel):
     to: str
     amount: float
