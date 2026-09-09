@@ -1,6 +1,41 @@
 # PenGuard: Autonomous Purple Team Platform
 
-PenGuard (formerly Purple Web) is an enterprise-grade, closed-loop cyber resilience platform. Operating via an autonomous 4-agent architecture (2 Red + 2 Blue), it emulates targeted attacks against web applications, detects security violations in real-time, dynamically injects zero-downtime runtime mitigations into isolated Docker environments, and verifies remediation through automated re-testing.
+[![CI](https://github.com/Iabdallllah/PenGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/Iabdallllah/PenGuard/actions)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![Vercel](https://img.shields.io/badge/Vercel-000?logo=vercel&logoColor=white)](https://vercel.com)
+[![Railway](https://img.shields.io/badge/Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.app)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> **Live Demo:** Frontend → **[https://pen-guard-wafy.vercel.app](https://pen-guard-wafy.vercel.app)** · API → **[https://heroic-insight-production-d97d.up.railway.app/api/health](https://heroic-insight-production-d97d.up.railway.app/api/health)** · Grafana → `http://localhost:3001` (admin/admin)
+
+PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps** platform. **Red Agent → Blue Agent → GitHub PR → CI/CD Preview → Verified Patch** — all autonomous, no human in the loop. Built on **LangGraph + Groq + Neo4j-ready Graph-RAG + PostgreSQL + WebSockets**.
+
+```text
+                [User: base_url + scenario]
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │   VANGUARD Dashboard │  (Next.js, WebSocket /ws/episodes)
+              └──────────┬───────────┘
+                         │ POST /api/episodes/run
+                         ▼
+              ┌──────────────────────┐      ┌─────────────────────┐
+              │  Red Agent (Recon)   │─────►│   Blue Agent (Fix)  │
+              │  Auto-Crawl + Exploit│      │  AST-safe Patch     │
+              └──────────┬───────────┘      └──────────┬──────────┘
+                         │                             │ create_git_ref
+                         └──────────────┬──────────────┘
+                                        ▼
+                              ┌──────────────────┐
+                              │  GitHub PR       │──► Vercel Preview ──► Verifier
+                              └──────────────────┘         │
+                                                           ▼
+                                                    ┌─────────────┐
+                                                    │  CI Green   │
+                                                    └─────────────┘
+```
 
 ---
 
@@ -155,10 +190,20 @@ export GROQ_API_KEY="your-groq-api-key-here"
 docker build --network=host -t purple-target:latest -f sandbox/Dockerfile .
 ```
 
-### 3. Start Backend Orchestrator
+### 3. Start Backend + Target (Offline Fallback - One Command Each)
 
 ```bash
+# Terminal 1: Target (vulnerable app)
+uvicorn target_app:app --host 127.0.0.1 --port 8001 --reload
+
+# Terminal 2: API + Orchestrator (with live metrics)
 uvicorn api_server:app --host 127.0.0.1 --port 8000 --reload
+# Metrics: http://127.0.0.1:8000/metrics  &  http://127.0.0.1:8000/api/metrics
+
+# Terminal 3: Monitoring (optional, for Grafana demo)
+docker compose -f docker-compose.monitoring.yml up -d
+# Prometheus: http://localhost:9090/targets → 1/1 UP
+# Grafana: http://localhost:3001 → admin/admin → Import grafana-dashboard.json
 ```
 
 ### 4. Start Telemetry Dashboard
@@ -170,15 +215,35 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` in your browser.
+Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_API_BASE=https://heroic-insight-production-d97d.up.railway.app`.
+
+**Offline Demo Fallback (for viva without internet):**
+- The two `uvicorn` commands above are sufficient — no Docker or external API needed (fallback mock works without `GROQ_API_KEY`).
+- Pre-save screenshots in `docs/screenshots/` (Grafana + Dashboard + PR) to show in slides if network is blocked.
+
+---
+
+## Screenshots
+
+| Dashboard | Grafana | PR |
+|---|---|---|
+| `docs/screenshots/dashboard.png` | `docs/screenshots/grafana.png` | `docs/screenshots/pr.png` |
+| *Place your screenshots here* | | |
 
 ---
 
 ## API Reference
 
-- `GET /api/episodes`: Retrieve all executed penetration and hardening records.
-- `POST /api/episodes/run`: Dispatch an autonomous hardening loop (`{"scenario": "sql_injection" | "business_logic" | "idor"}`).
-- `GET /api/reports/compliance`: Generate and stream downloadable compliance audit report (`.md`).
+- `GET /api/health` — liveness probe
+- `GET /api/episodes` — list all episodes (persistent in Postgres, fallback to JSON)
+- `GET /api/episodes/{id}` — episode detail
+- `POST /api/episodes/run` — dispatch `{"scenario": "idor"|"sql_injection"|"business_logic"|"xss"|"csrf"|"ssrf"|"broken_auth"|"misconfig"}` (only `base_url` + `scenario` required — sub-path auto-discovered via `Auto-Recon`)
+- `DELETE /api/episodes` — clear history (for demo reset)
+- `GET /api/scenarios` — list 8 OWASP vectors
+- `GET /api/reports/compliance` — dynamic PDF (generated per operation from current ledger)
+- `GET /metrics` & `GET /api/metrics` — Prometheus metrics
+- `WS /ws/episodes` — real-time episode streaming (replaces 5s polling)
+- `WS /ws/telemetry` — mobile spec (see `docs/mobile-api.md`)
 
 ---
 
