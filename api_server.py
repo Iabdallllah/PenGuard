@@ -6,23 +6,41 @@ import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestrator import app_graph, sandbox
 
-app = FastAPI(title="PenGuard Engine API")
+app = FastAPI(title="PenGuard API")
 
-# Prometheus metrics — always exposed at /metrics (free, no env needed)
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-    Instrumentator(should_group_status_codes=False, should_ignore_untemplated=True).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-    print("[metrics] Prometheus /metrics enabled")
-except Exception as _e:
-    print(f"[metrics] instrumentator not enabled: {_e}")
+    has_instrumentator = True
+except ImportError:
+    has_instrumentator = False
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
+    print("[metrics] prometheus_fastapi_instrumentator not found, fallback only")
+
+if has_instrumentator:
+    try:
+        Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+        print("[metrics] Prometheus /metrics exposed via instrumentator")
+    except Exception as _e:
+        print(f"[metrics] instrumentator expose failed: {_e}")
+        has_instrumentator = False
+
+if not has_instrumentator:
+    # Fallback route guaranteed to never 404
+    @app.get("/metrics")
+    def get_metrics():
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    print("[metrics] Fallback /metrics enabled")
 
 app.add_middleware(
     CORSMiddleware,
