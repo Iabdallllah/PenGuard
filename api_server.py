@@ -515,14 +515,14 @@ async def trigger_run(payload: RunRequest):
                 base_url = SANDBOX_DEFAULT_URL
                 used_sandbox = False
 
-            # For fallback (no container), ensure clean state before probe
-            if not used_sandbox:
-                try:
-                    import requests as _rq
-                    _rq.post(f"{SANDBOX_DEFAULT_URL}/admin/reset-mitigation", timeout=2)
-                    print("[sandbox] fallback reset complete")
-                except Exception as _e:
-                    print(f"[sandbox] fallback reset failed: {_e}")
+            # Ensure clean state before probe (for both Docker and fallback) — fixes sqli/xss staying blocked
+            try:
+                import requests as _rq
+                reset_url = base_url if used_sandbox else SANDBOX_DEFAULT_URL
+                _rq.post(f"{reset_url}/admin/reset-mitigation", timeout=2)
+                print(f"[sandbox] reset complete for {reset_url}")
+            except Exception as _e:
+                print(f"[sandbox] reset failed: {_e}")
         else:
             base_url = raw_target.rstrip("/")
 
