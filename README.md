@@ -225,10 +225,9 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 
 ## Screenshots
 
-| Dashboard | Grafana | PR |
-|---|---|---|
-| 'docs/screenshots/dashboard.png' | 'docs/screenshots/grafana.png' | 'docs/screenshots/pr.png' |
-| *Place your screenshots here* | | |
+| Dashboard (Vercel) | Observability (Grafana) | Autonomous PR (GitHub) |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="300" /> | <img src="docs/screenshots/grafana.png" alt="Grafana" width="300" /> | <img src="docs/screenshots/pr.png" alt="PR Mitigation" width="300" /> |
 
 ---
 
