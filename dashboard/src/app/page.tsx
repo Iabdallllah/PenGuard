@@ -24,6 +24,11 @@ function apiUrl(path: string) {
   return path; // relative → handled by next.config.ts rewrites → http://127.0.0.1:8000
 }
 const API_DISPLAY = API_BASE || "/api";
+// Mutating calls (dispatch/clear) require X-API-Key on the backend
+const API_KEY = (typeof process !== "undefined" && (process.env.NEXT_PUBLIC_API_KEY as string)) || "penguard-dev-token-2026";
+function authHeaders(extra: Record<string, string> = {}) {
+  return { "Content-Type": "application/json", "X-API-Key": API_KEY, ...extra };
+}
 
 // Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic/xss/csrf/ssrf/broken_auth/misconfig)
 function normalizeAttackKey(raw: string): ScenarioKey | null {
@@ -548,7 +553,7 @@ export default function Dashboard() {
     try {
       const res = await fetch(apiUrl("/api/episodes/run"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           scenario: selectedScenario,
           // Backend now understands default sandbox URL as isolated request; sending as-is keeps UI shape unchanged
@@ -578,7 +583,7 @@ export default function Dashboard() {
   const clearHistory = async () => {
     if (!confirm("مسح كل السجلات القديمة؟ لا يمكن التراجع.")) return;
     try {
-      const res = await fetch(apiUrl("/api/episodes"), { method: "DELETE" });
+      const res = await fetch(apiUrl("/api/episodes"), { method: "DELETE", headers: authHeaders() });
       if (res.ok) {
         setEpisodes([]);
         setActiveInspector(null);

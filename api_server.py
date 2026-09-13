@@ -6,14 +6,28 @@ import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Security, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 from orchestrator import app_graph, sandbox
 
 app = FastAPI(title="PenGuard API")
+
+# Selective API-Key auth — protects mutating routes only (GET health/metrics/scenarios stay open)
+API_KEY = os.getenv("PENGUARD_API_KEY", "penguard-dev-token-2026")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def verify_api_key(key: str = Security(api_key_header)):
+    if not key or key != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    return key
 
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -70,6 +84,8 @@ def _load_episodes() -> List[Dict[str, Any]]:
                     "threat_flag": r.threat_flag, "score": r.score, "remediation": r.remediation,
                     "logs": r.logs or [], "timestamp": r.timestamp, "duration_ms": r.duration_ms,
                     "scenario": r.scenario, "base_url": r.base_url, "pr_url": r.pr_url,
+                    "cvss_score": getattr(r, "cvss_score", None), "severity": getattr(r, "severity", None),
+                    "cwe": getattr(r, "cwe", None),
                     "recon_data": r.recon_data, "detection_report": r.detection_report,
                     "hardening_plan": r.hardening_plan, "response_body": r.response_body,
                 })
@@ -125,7 +141,8 @@ def _db_add_episode(record: Dict[str, Any]):
             remediation=record.get("remediation"), logs=record.get("logs"), timestamp=record.get("timestamp"),
             duration_ms=record.get("duration_ms"), scenario=record.get("scenario"), base_url=record.get("base_url"),
             pr_url=record.get("pr_url"), recon_data=record.get("recon_data"), detection_report=record.get("detection_report"),
-            hardening_plan=record.get("hardening_plan"), response_body=record.get("response_body")
+            hardening_plan=record.get("hardening_plan"), response_body=record.get("response_body"),
+            cvss_score=record.get("cvss_score"), severity=record.get("severity"), cwe=record.get("cwe")
         )
         db.add(ep)
         db.commit()
@@ -187,6 +204,36 @@ SCENARIO_TO_LABEL = {
     "misconfig": "Security Misconfiguration",
 }
 ALLOWED_SCENARIOS = {"idor", "sql_injection", "business_logic", "xss", "csrf", "ssrf", "broken_auth", "misconfig"}
+# CVSS v3.1 official metrics per vector — feeds the posture equation S(t) = max(0, 100 - sum(w*CVSS over unpatched))
+VECTOR_METRICS = {
+    "sql_injection": {"cvss": 8.6, "severity": "HIGH", "cwe": "CWE-89", "weight": 1.0},
+    "ssrf": {"cvss": 8.5, "severity": "HIGH", "cwe": "CWE-918", "weight": 1.0},
+    "broken_auth": {"cvss": 8.1, "severity": "HIGH", "cwe": "CWE-287", "weight": 0.9},
+    "idor": {"cvss": 7.5, "severity": "HIGH", "cwe": "CWE-639", "weight": 0.9},
+    "business_logic": {"cvss": 7.4, "severity": "HIGH", "cwe": "CWE-840", "weight": 0.8},
+    "csrf": {"cvss": 6.5, "severity": "MEDIUM", "cwe": "CWE-352", "weight": 0.7},
+    "xss": {"cvss": 6.1, "severity": "MEDIUM", "cwe": "CWE-79", "weight": 0.6},
+    "misconfig": {"cvss": 5.3, "severity": "MEDIUM", "cwe": "CWE-16", "weight": 0.5},
+}
+
+
+def compute_posture(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Dynamic posture S(t) = max(0, 100 - sum(w_i * CVSS_i)) over unpatched threat episodes."""
+    deduction = 0.0
+    active = 0
+    for e in episodes:
+        if e.get("threat_flag") and not e.get("patch_applied"):
+            active += 1
+            m = VECTOR_METRICS.get(e.get("attack_type") or e.get("scenario") or "", {})
+            deduction += m.get("weight", 0.5) * m.get("cvss", 5.0)
+    score = max(0.0, round(100.0 - deduction, 1))
+    return {
+        "score": score,
+        "status": "HEALTHY" if score >= 80 else ("DEGRADED" if score >= 50 else "CRITICAL"),
+        "active_vulnerabilities": active,
+        "mitigated_vulnerabilities": sum(1 for e in episodes if e.get("threat_flag") and e.get("patch_applied")),
+        "last_audit_timestamp": max((e.get("timestamp") or "" for e in episodes), default=None),
+    }
 # Production: TARGET_URL env (e.g. https://purple-target.onrender.com) or fallback to local TARGET_PORT
 TARGET_URL_ENV = os.getenv("TARGET_URL", "").strip()
 TARGET_PORT_ENV = os.getenv("TARGET_PORT", "8001")
@@ -250,7 +297,7 @@ def health():
 
 @app.get("/api/scenarios")
 def list_scenarios():
-    return [
+    base = [
         {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
         {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
         {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
@@ -260,6 +307,16 @@ def list_scenarios():
         {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021"},
         {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021"},
     ]
+    for s in base:
+        s.update(VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5}))
+    return base
+
+
+@app.get("/api/posture")
+def get_posture():
+    """Dynamic posture S(t) from live ledger — open for dashboard/Prometheus."""
+    return compute_posture(get_episodes())
+
 
 @app.get("/api/episodes")
 def get_episodes():
@@ -277,6 +334,8 @@ def get_episodes():
                         "threat_flag": r.threat_flag, "score": r.score, "remediation": r.remediation,
                         "logs": r.logs or [], "timestamp": r.timestamp, "duration_ms": r.duration_ms,
                         "scenario": r.scenario, "base_url": r.base_url, "pr_url": r.pr_url,
+                        "cvss_score": getattr(r, "cvss_score", None), "severity": getattr(r, "severity", None),
+                        "cwe": getattr(r, "cwe", None),
                         "recon_data": r.recon_data, "detection_report": r.detection_report,
                         "hardening_plan": r.hardening_plan, "response_body": r.response_body,
                     }
@@ -286,7 +345,7 @@ def get_episodes():
             print(f"[get] DB read failed: {e}")
     return episodes_db
 
-@app.delete("/api/episodes")
+@app.delete("/api/episodes", dependencies=[Security(verify_api_key)])
 async def clear_episodes():
     """Clear old records — solves 'old recordings still present' issue. Keeps filesystem clean."""
     count = len(episodes_db)
@@ -474,7 +533,7 @@ def get_compliance_report():
         },
     )
 
-@app.post("/api/episodes/run")
+@app.post("/api/episodes/run", dependencies=[Security(verify_api_key)])
 async def trigger_run(payload: RunRequest):
     started = datetime.utcnow()
     # normalize scenario to allowed keys
@@ -558,11 +617,15 @@ async def trigger_run(payload: RunRequest):
 
         logs = _build_logs(result, base_url, duration_ms)
 
+        metrics = VECTOR_METRICS.get(attack_type_ui, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
         record = {
             "id": result.get("episode_id", ep_id),
             "target": target_endpoint or base_url,
             "attack_type": attack_type_ui,
             "attack_label": SCENARIO_TO_LABEL.get(attack_type_ui, raw_attack or attack_type_ui),
+            "cvss_score": metrics["cvss"],
+            "severity": metrics["severity"],
+            "cwe": metrics["cwe"],
             "status": result.get("http_status") or 0,
             "retest_status": result.get("retest_status"),
             "patch_applied": bool(result.get("patch_applied", False)),

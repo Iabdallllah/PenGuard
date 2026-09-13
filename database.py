@@ -45,6 +45,9 @@ class Episode(Base):
     target = Column(Text)
     attack_type = Column(String, index=True)
     attack_label = Column(String)
+    cvss_score = Column(Float, nullable=True)
+    severity = Column(String, nullable=True)
+    cwe = Column(String, nullable=True)
     status = Column(Integer)
     retest_status = Column(Integer, nullable=True)
     patch_applied = Column(Boolean)
@@ -80,6 +83,24 @@ def init_db():
         return False
     try:
         Base.metadata.create_all(bind=engine)
+        # Light migration: add new columns to existing tables without data loss
+        try:
+            from sqlalchemy import text
+            with engine.begin() as conn:
+                existing = {row[1] for row in conn.execute(text("PRAGMA table_info(episodes)"))} if "sqlite" in str(engine.url) else set()
+                if not existing and "sqlite" not in str(engine.url):
+                    cols = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='episodes'"))
+                    existing = {row[0] for row in cols}
+                for col, ddl in [
+                    ("cvss_score", "FLOAT"),
+                    ("severity", "VARCHAR"),
+                    ("cwe", "VARCHAR"),
+                ]:
+                    if col not in existing:
+                        conn.execute(text(f"ALTER TABLE episodes ADD COLUMN {col} {ddl}"))
+                        print(f"[database] migrated: added episodes.{col}")
+        except Exception as me:
+            print(f"[database] migration skipped: {me}")
         print(f"[database] initialized: {DATABASE_URL.split('@')[-1][:30]}...")
         return True
     except Exception as e:
