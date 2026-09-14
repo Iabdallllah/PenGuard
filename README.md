@@ -140,13 +140,12 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
 | Vector | OWASP Tag | Target Surface | CVSS | Initial → Secured | Framework Controls |
 | :--- | :--- | :--- | :---: | :--- | :--- |
 | **Broken Access Control (IDOR)** | A01:2021 | `/api/user/{id}` | 7.5 | 200 → 403 | SOC 2 CC6.1, NIST AC-3 |
-| **Cryptographic Failure** | A02:2021 | `/api/export?token=` | 7.4 | 200 → 403 | ISO 27001 A.10.1, NIST SC-8 |
 | **SQL Injection** | A03:2021 | `/api/records?query=` | 8.6 | 200 → 403 | ISO 27001 A.8.28, NIST SI-4 |
-| **Business Logic Abuse** | A04:2021 | `/api/checkout` | 6.8 | 200 → 400 | SOC 2 CC7.1, NIST SI-4 |
+| **Business Logic Abuse** | A04:2021 | `/api/checkout` | 7.4 | 200 → 400 | SOC 2 CC7.1, NIST SI-4 |
 | **Cross-Site Scripting (XSS)** | A03:2021 | `/api/search?q=` | 6.1 | 200 → 400 | OWASP A03:2021, NIST SI-10 |
 | **CSRF** | A01:2021 | `/api/transfer` | 6.5 | 200 → 403 | SOC 2 CC6.1, NIST AC-8 |
-| **SSRF** | A10:2021 | `/api/fetch?url=` | 7.1 | 200 → 403 | NIST SC-7, ISO A.13.1 |
-| **Broken Authentication** | A07:2021 | `/api/login` | 7.8 | 200 → 401 | NIST IA-2, SOC 2 CC6.1 |
+| **SSRF** | A10:2021 | `/api/fetch?url=` | 8.5 | 200 → 403 | NIST SC-7, ISO A.13.1 |
+| **Broken Authentication** | A07:2021 | `/api/login` | 8.1 | 200 → 401 | NIST IA-2, SOC 2 CC6.1 |
 | **Security Misconfiguration** | A05:2021 | `/api/debug` | 5.3 | 200 → 403 | ISO A.12.5, NIST CM-7 |
 
 ---
@@ -290,12 +289,11 @@ S(t) = max(0, 100 − Σ_{unpatched} weight_i · CVSS_i)
 | Vector | CVSS | Weight | CWE |
 | :--- | :---: | :---: | :--- |
 | SQL Injection | 8.6 | 1.0 | CWE-89 |
-| Broken Auth | 7.8 | 1.0 | CWE-287 |
-| Cryptographic Failure | 7.4 | 0.9 | CWE-327 |
-| SSRF | 7.1 | 0.9 | CWE-918 |
-| IDOR | 7.5 | 0.8 | CWE-639 |
+| SSRF | 8.5 | 1.0 | CWE-918 |
+| Broken Auth | 8.1 | 0.9 | CWE-287 |
+| IDOR | 7.5 | 0.9 | CWE-639 |
+| Business Logic | 7.4 | 0.8 | CWE-840 |
 | CSRF | 6.5 | 0.7 | CWE-352 |
-| Business Logic | 6.8 | 0.7 | CWE-840 |
 | XSS | 6.1 | 0.6 | CWE-79 |
 | Misconfig | 5.3 | 0.5 | CWE-16 |
 
