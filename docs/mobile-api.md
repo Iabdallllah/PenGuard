@@ -7,8 +7,8 @@ This document defines the client-server contract between the PenGuard mobile app
 ## 1. Network Topology & Transport Protocols
 
 * **REST Base URL:** `https://heroic-insight-production-d97d.up.railway.app`
-* **WebSocket Streaming URL:** `wss://heroic-insight-production-d97d.up.railway.app/ws/telemetry`
-* **Authentication Header:** `X-PenGuard-Key: <SECURE_CLIENT_TOKEN>` or `Authorization: Bearer <TOKEN>`
+* **WebSocket Streaming URL:** `wss://heroic-insight-production-d97d.up.railway.app/ws/episodes`
+* **Authentication Header:** `X-API-Key: <PENGUARD_API_KEY>` (required on `POST /api/episodes/run` and `DELETE /api/episodes`; all `GET` routes are open)
 
 ---
 
@@ -18,24 +18,26 @@ This document defines the client-server contract between the PenGuard mobile app
 | --- | --- | --- | --- |
 | `GET` | `/api/posture` | Real-time security posture score $S(t)$, active vulnerabilities count, and status. | Dashboard Header & Gauge Chart |
 | `GET` | `/api/episodes` | List all historical scan and remediation episodes (supports pagination). | Audit Trail & Incident Feed |
-| `POST` | `/api/scenarios/dispatch` | Trigger an autonomous Red/Blue execution run. | `Dispatch Scenario` Action Button |
+| `POST` | `/api/episodes/run` | Trigger an autonomous Red/Blue execution run. | `Dispatch Scenario` Action Button |
 | `GET` | `/api/episodes/{id}` | Detailed trace of an episode (logs, payload, diff, and PR link). | Episode Detail Screen |
 | `DELETE` | `/api/episodes` | Purge telemetry and episode ledger from PostgreSQL. | Reset / Purge Action |
-| `GET` | `/api/report/pdf` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
+| `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE. | Scenario Picker |
+| `GET` | `/api/reports/compliance` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
 
 ---
 
 ## 3. Request & Response Payload Schemas
 
-### Trigger Scenario (`POST /api/scenarios/dispatch`)
+### Trigger Scenario (`POST /api/episodes/run` — requires `X-API-Key` header)
 
 ```json
 // Request Body
 {
-  "scenario_id": "A03-XSS",
-  "target_url": "http://127.0.0.1:8001",
-  "autonomous_patch": true
+  "scenario": "xss",
+  "target_url": "http://127.0.0.1:8001"
 }
+// scenario ∈ {idor, sql_injection, business_logic, xss, csrf, ssrf, broken_auth, misconfig}
+// target_url may be "" (isolated sandbox)
 
 // Response (202 Accepted)
 {
@@ -88,11 +90,12 @@ The Flutter client maintains a persistent WebSocket connection to receive asynch
 
 * **Connection Handshake:**
 ```text
-GET /ws/telemetry HTTP/1.1
+GET /ws/episodes HTTP/1.1
 Host: heroic-insight-production-d97d.up.railway.app
 Upgrade: websocket
 Connection: Upgrade
 ```
+* Server pushes the full episode ledger (JSON array) on connect and after every run; 30s `ping` keepalive otherwise. Client falls back to `GET /api/episodes` polling if WS fails.
 
 * **Event Schema (Server $\to$ Client JSON Frame):**
 ```json
