@@ -49,11 +49,11 @@ PenGuard is engineered across four integrated planes:
 - **Hybrid Graph-RAG Layer (Neo4j + STIX 2.1):** Maps threats, assets, and courses of action to model exploit chaining and blast radius.
 
 #### 4.2 Dynamic Posture Formulation
-Systemic security posture is modeled as a continuous state metric $S(t) \in [0, 100]$:
+Systemic security posture is modeled as a continuous state metric $S(t) \in [0, 100]$. The implemented engine (`compute_posture` in `api_server.py`) scores only validated, unpatched threat episodes against static business weights from `VECTOR_METRICS`:
 
-$$S(t) = \max \left(0, \; S_0 - \sum_{i \in \mathcal{V}_{\text{active}}} \omega_i \cdot \text{CVSS}_i + \sum_{j \in \mathcal{M}_{\text{verified}}} \gamma_j \cdot \Delta_j \right)$$
+$$S(t) = \max \left(0, \; 100 - \sum_{i \in \mathcal{V}_{\text{active}}} w_i \cdot \text{CVSS}_i \right)$$
 
-Where $S_0=100$ is baseline, $\omega_i$ is PageRank centrality, $\text{CVSS}_i$ is severity, and $\gamma_j$ is CI verification confidence.
+Where $\mathcal{V}_{\text{active}}$ is the set of episodes with `threat_flag=true` and `patch_applied=false`, $w_i$ is the static business weight (0.5–1.0 per vector), and $\text{CVSS}_i$ is the vector base score (e.g., SQLi 8.6, SSRF 8.5, broken_auth 8.1, IDOR 7.5, business_logic 7.4, CSRF 6.5, XSS 6.1, misconfig 5.3). Status bands: $\ge 80$ HEALTHY · $50$–$79$ DEGRADED · $< 50$ CRITICAL. Roadmap (Phase 3, Neo4j): replace $w_i$ with PageRank centrality over graph $G$ and add a CI-verification confidence term $+\sum_j \gamma_j \cdot \Delta_j$.
 
 ### 5. Experimental Setup & Evaluation Metrics
 #### 5.1 Prototype Implementation & Baseline

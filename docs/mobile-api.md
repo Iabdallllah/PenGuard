@@ -71,7 +71,7 @@ This document defines the client-server contract between the PenGuard mobile app
   "cvss_score": 6.1,
   "exploit_payload": "<script>alert(1)</script>",
   "target_file": "target_app.py",
-  "pr_url": "https://github.com/labdallllah/PenGuard/pull/4",
+  "pr_url": "https://github.com/Iabdallllah/PenGuard/pull/4",
   "ci_status": "PASSED",
   "logs": [
     "[INFO] Scanning target endpoints...",

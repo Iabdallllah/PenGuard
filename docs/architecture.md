@@ -52,20 +52,18 @@ The Blue Agent queries bidirectional inbound and outbound references prior to ge
 
 ## 4. Mathematical Model of Dynamic Security Posture
 
-The platform quantifies the temporal infrastructure posture via a continuous, bounded metric $S(t) \in [0, 100]$:
+The platform quantifies the temporal infrastructure posture via a continuous, bounded metric $S(t) \in [0, 100]$. The implemented engine (`compute_posture`) sums only validated, unpatched threat episodes:
 
 $$
-S(t) = \max \left(0, \; S_0 - \sum_{i \in \mathcal{V}_{\text{active}}} \omega_i \cdot \text{CVSS}_i + \sum_{j \in \mathcal{M}_{\text{verified}}} \gamma_j \cdot \Delta_j \right)
+S(t) = \max \left(0, \; 100 - \sum_{i \in \mathcal{V}_{\text{active}}} w_i \cdot \text{CVSS}_i \right)
 $$
 
 Where:
 
-* $S_0$: Baseline organizational posture score ($S_0 = 100$).
-* $\mathcal{V}_{\text{active}}$: The set of validated, unmitigated vulnerabilities detected in the active runtime ledger.
-* $\omega_i \in (0, 1]$: Topological centrality weight computed via PageRank over graph $G$, reflecting the critical exposure of the targeted asset.
-* $\text{CVSS}_i$: Common Vulnerability Scoring System v3.1 base score for vulnerability $i$.
-* $\mathcal{M}_{\text{verified}}$: Set of candidate patches validated by isolated CI test executions and Vercel preview environments.
-* $\gamma_j \in [0, 1]$: CI verification confidence factor ($\gamma_j = 1.0$ for clean preview deployment and zero regressions).
+* $\mathcal{V}_{\text{active}}$: The set of validated, unmitigated vulnerabilities detected in the active runtime ledger (`threat_flag=true`, `patch_applied=false`).
+* $w_i \in (0, 1]$: Static business weight from `VECTOR_METRICS` (e.g., SQLi 1.0, SSRF 1.0, broken_auth 0.9, IDOR 0.9, business_logic 0.8, CSRF 0.7, XSS 0.6, misconfig 0.5), reflecting the critical exposure of the targeted asset. Roadmap: compute via PageRank over graph $G$ after Neo4j integration (Phase 3).
+* $\text{CVSS}_i$: CVSS base score for vulnerability $i$ (SQLi 8.6, SSRF 8.5, broken_auth 8.1, IDOR 7.5, business_logic 7.4, CSRF 6.5, XSS 6.1, misconfig 5.3).
+* Status bands: $\ge 80$ HEALTHY · $50$–$79$ DEGRADED · $< 50$ CRITICAL. Roadmap: add a CI-verification confidence term $+\sum_j \gamma_j \cdot \Delta_j$ once preview-environment verification lands.
 
 ---
 
