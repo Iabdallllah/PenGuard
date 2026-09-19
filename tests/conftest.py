@@ -34,10 +34,18 @@ def clean_ledger():
     try:
         from database import SessionLocal, Episode as DBEpisode
 
+        try:
+            from database import SealedReport as DBSeal
+        except Exception:
+            DBSeal = None
+
         if api_server._use_db and SessionLocal and DBEpisode:
             db = SessionLocal()
             for row in db.query(DBEpisode).all():
                 if row.id not in before_ids:
+                    db.delete(row)
+            if DBSeal is not None:
+                for row in db.query(DBSeal).all():
                     db.delete(row)
             db.commit()
             db.close()

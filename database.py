@@ -76,6 +76,18 @@ class PostureMetric(Base):
     patched_count = Column(Integer)
 
 
+class SealedReport(Base):
+    """Immutable audit snapshot: canonical report bytes + SHA-256 for tamper evidence."""
+
+    __tablename__ = "sealed_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    hash = Column(String, unique=True, index=True)
+    canonical_json = Column(Text)
+    episodes_count = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 def init_db():
     if not _db_available or engine is None:
         print("[database] init skipped - no engine")

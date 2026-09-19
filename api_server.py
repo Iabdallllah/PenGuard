@@ -1,5 +1,7 @@
 import os
 import asyncio
+import hashlib
+import json
 import re
 import subprocess
 import uuid
@@ -59,7 +61,7 @@ _STORE_PATH = os.path.join(os.path.dirname(__file__), "episodes_store.json")
 
 # --- DB with fallback ---
 try:
-    from database import SessionLocal, Episode as DBEpisode, PostureMetric, _db_available, engine
+    from database import SessionLocal, Episode as DBEpisode, PostureMetric, SealedReport, _db_available, engine
     _use_db = _db_available and engine is not None
     if _use_db:
         print(f"[database] using {str(engine.url).split('@')[-1][:40]}")
@@ -284,6 +286,18 @@ def _normalize_attack_type_for_ui(vuln_target: Optional[str], scenario_fallback:
             return VULN_TO_SCENARIO[k]
     return _normalize_scenario(scenario_fallback)
 
+def _build_explainability(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Blue-agent decision transparency: confidence (+source) and rationale."""
+    dr = result.get("detection_report") or {}
+    hp = result.get("hardening_plan") or {}
+    return {
+        "confidence": dr.get("confidence_score"),
+        "confidence_source": dr.get("confidence_source", "heuristic-fallback"),
+        "rule": hp.get("target_rule_name"),
+        "rationale": result.get("remediation") or "",
+    }
+
+
 def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List[str]:
     logs: List[str] = []
     logs.append(f"[{datetime.utcnow().isoformat()}Z] Episode {result.get('episode_id')} initiated · scenario={result.get('scenario')} · target={base_url}")
@@ -308,6 +322,11 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
         logs.append(f"[reflection] attempts={result.get('reflection_attempts')} feedback={str(result.get('reflection_feedback'))[:180]}")
     if result.get("pr_verdict_url"):
         logs.append(f"[pr] verdict comment: {result.get('pr_verdict_url')}")
+    im = result.get("inference_metrics") or {}
+    if im:
+        logs.append(f"[inference] mode={im.get('mode')} model={im.get('model')} "
+                    f"tokens={im.get('tokens_prompt')}/{im.get('tokens_completion')} "
+                    f"cost_usd={im.get('estimated_cost_usd')} total_latency_ms={im.get('total_latency_ms')}")
     logs.append(f"[score] posture={result.get('posture_score')} duration={duration_ms}ms")
     # sandbox container logs if available
     try:
@@ -323,6 +342,23 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
 @app.get("/api/health")
 def health():
     return {"status": "ok", "episodes": len(episodes_db), "time": datetime.utcnow().isoformat() + "Z"}
+
+
+@app.get("/.well-known/security.txt", include_in_schema=False)
+def security_txt():
+    # RFC 9116 — machine-readable vulnerability disclosure + trust posture
+    expires = (datetime.utcnow().replace(year=datetime.utcnow().year + 1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = (
+        "Contact: https://github.com/Iabdallllah/PenGuard/security/advisories/new\n"
+        "Contact: https://github.com/Iabdallllah/PenGuard/blob/main/SECURITY.md\n"
+        f"Expires: {expires}\n"
+        "Preferred-Languages: en, ar\n"
+        "Canonical: https://heroic-insight-production-d97d.up.railway.app/.well-known/security.txt\n"
+        "Canonical: https://penguardai.vercel.app/.well-known/security.txt\n"
+        "Policy: https://github.com/Iabdallllah/PenGuard/blob/main/SECURITY.md\n"
+        "Hiring: https://github.com/Iabdallllah/PenGuard\n"
+    )
+    return Response(content=body, media_type="text/plain")
 
 SCENARIO_CATALOG = [
     {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
@@ -447,6 +483,11 @@ async def broadcast_episodes():
 def _build_dynamic_html(episodes: List[Dict[str, Any]]) -> str:
     import html as _h
     n = len(episodes)
+    try:
+        _seal = _latest_seal_hash()
+    except Exception:
+        _seal = None
+    seal_line = (_seal + " — verify: GET /api/reports/verify/" + _seal) if _seal else "unsealed — POST /api/reports/seal to freeze this ledger"
     patches = sum(1 for e in episodes if e.get("patch_applied"))
     avg_score = round(sum(e.get("score", 0) for e in episodes) / n) if n else 100
     # Build episode rows
@@ -520,6 +561,7 @@ table.data-table td {{ padding: 6px 8px; font-size: 8pt; border-bottom: 1px soli
 {remediation_blocks}
 <h2>4. Attestation & Continuous Assurance</h2>
 <p>This digital audit report serves as verifiable attestation of continuous automated security posture management. Generated dynamically per operation on {datetime.utcnow().isoformat()}Z.</p>
+<p class="meta-text"><strong>Audit Seal (SHA-256):</strong> {seal_line}</p>
 </body></html>"""
     return html
 
@@ -570,6 +612,64 @@ def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
 def get_sarif_report():
     # Dynamic per-operation: always regenerate from the live ledger (open route)
     return _build_sarif(get_episodes())
+
+
+def _latest_seal_hash():
+    try:
+        if not (_use_db and SessionLocal and SealedReport):
+            return None
+        db = SessionLocal()
+        row = db.query(SealedReport).order_by(SealedReport.id.desc()).first()
+        db.close()
+        return row.hash if row else None
+    except Exception:
+        return None
+
+
+@app.post("/api/reports/seal", dependencies=[Security(verify_api_key)])
+def seal_report():
+    """Freeze an immutable SARIF snapshot: SHA-256 over canonical JSON, stored
+    with the snapshot bytes so auditors can verify tamper-evidence later."""
+    ledger = get_episodes()
+    canonical = json.dumps(_build_sarif(ledger), sort_keys=True, ensure_ascii=False)
+    h = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    sealed_at = datetime.utcnow().isoformat() + "Z"
+    persisted = False
+    try:
+        if _use_db and SessionLocal and SealedReport:
+            db = SessionLocal()
+            existing = db.query(SealedReport).filter(SealedReport.hash == h).first()
+            if existing:
+                if existing.created_at:
+                    sealed_at = existing.created_at.isoformat() + "Z"
+                persisted = True
+            else:
+                db.add(SealedReport(hash=h, canonical_json=canonical, episodes_count=len(ledger)))
+                db.commit()
+                persisted = True
+            db.close()
+    except Exception as e:
+        print(f"[seal] db failed: {e}")
+    return {"seal": h, "hash": h, "sealed_at": sealed_at,
+            "episodes_count": len(ledger), "persisted": persisted}
+
+
+@app.get("/api/reports/verify/{report_hash}")
+def verify_report(report_hash: str):
+    """Public tamper check: returns the sealed snapshot iff the hash matches."""
+    try:
+        if _use_db and SessionLocal and SealedReport:
+            db = SessionLocal()
+            row = db.query(SealedReport).filter(SealedReport.hash == report_hash).first()
+            db.close()
+            if row:
+                return {"match": True, "hash": row.hash,
+                        "sealed_at": row.created_at.isoformat() + "Z" if row.created_at else None,
+                        "episodes_count": row.episodes_count,
+                        "report": json.loads(row.canonical_json)}
+    except Exception as e:
+        print(f"[verify] failed: {e}")
+    raise HTTPException(status_code=404, detail={"match": False, "hash": report_hash})
 
 
 @app.get("/api/reports/compliance")
@@ -714,6 +814,8 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "pr_url": result.get("pr_url"),
             "pr_verdict_url": result.get("pr_verdict_url"),
             "reflection_attempts": result.get("reflection_attempts", 0),
+            "inference_metrics": result.get("inference_metrics"),
+            "explainability": _build_explainability(result),
             # expose extra telemetry for inspector without breaking UI
             "recon_data": result.get("recon_data"),
             "detection_report": result.get("detection_report"),

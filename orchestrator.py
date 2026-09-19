@@ -2,6 +2,8 @@ import os
 import json
 import socket
 import ssl
+import time
+import functools
 import requests
 from urllib.parse import urlparse
 from typing import TypedDict, Optional, Dict, Any
@@ -26,6 +28,60 @@ def _get_llm():
         return None
 
 llm = _get_llm()
+
+LLM_MODEL_ID = "openai/gpt-oss-20b"
+
+# ── FinOps instrumentation: per-node latency (always real) + token usage
+# (only when the live LLM is engaged; null in deterministic fallback mode).
+_USAGE = {"prompt_tokens": 0, "completion_tokens": 0}
+
+try:
+    from langchain_core.callbacks import BaseCallbackHandler
+
+    class _UsageHandler(BaseCallbackHandler):
+        def on_llm_end(self, response, **kwargs):
+            try:
+                for generations in (response.generations or []):
+                    for gen in generations:
+                        msg = getattr(gen, "message", None)
+                        um = getattr(msg, "usage_metadata", None) or {}
+                        if not um and isinstance(getattr(msg, "response_metadata", None), dict):
+                            um = msg.response_metadata.get("usage") or {}
+                        _USAGE["prompt_tokens"] += int(um.get("input_tokens", 0) or 0)
+                        _USAGE["completion_tokens"] += int(um.get("output_tokens", 0) or 0)
+            except Exception:
+                pass
+
+    _usage_handler = _UsageHandler()
+except Exception:
+    _usage_handler = None
+
+
+def _configured_llm():
+    """Live LLM with usage capture, or None in fallback mode."""
+    if llm is None or _usage_handler is None:
+        return llm
+    try:
+        return llm.with_config(callbacks=[_usage_handler])
+    except Exception:
+        return llm
+
+
+def _timed(name):
+    """Wrap a graph node to record wall-clock latency into state (merge-safe)."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(state):
+            t0 = time.perf_counter()
+            out = fn(state) or {}
+            ms = round((time.perf_counter() - t0) * 1000, 1)
+            lat = dict((state or {}).get("node_latencies_ms") or {})
+            lat[name] = ms
+            if isinstance(out, dict):
+                out = {**out, "node_latencies_ms": lat}
+            return out
+        return wrapper
+    return deco
 
 # ── Deterministic fallbacks mirroring system prompts ──
 def _fallback_recon(scenario: str):
@@ -250,6 +306,10 @@ class EpisodeState(TypedDict):
     pr_verdict_url: Optional[str]
     reflection_attempts: int
     reflection_feedback: Optional[str]
+    node_latencies_ms: Optional[Dict[str, float]]
+    llm_prompt_tokens: Optional[int]
+    llm_completion_tokens: Optional[int]
+    inference_metrics: Optional[Dict[str, Any]]
 
 def _crawl_and_discover(base_url: str, scenario: str) -> dict:
     """Dynamic attack surface discovery — probes base_url to find real endpoint."""
@@ -373,6 +433,9 @@ def _crypto_posture_check(base_url: str) -> str:
         return f"Crypto-posture: check skipped ({e})"
 
 def memory_retrieval_node(state: EpisodeState) -> Dict[str, Any]:
+    # New run => reset the module token accumulator (single-flight runs only)
+    _USAGE["prompt_tokens"] = 0
+    _USAGE["completion_tokens"] = 0
     try:
         context = retrieve_past_context(f"{state['scenario']} security audit")
     except Exception as e:
@@ -450,7 +513,7 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
             ("system", "You are an automated Reconnaissance Agent (Red Agent 1). " + instruction + f" Discovered via dynamic probe: {discovered}"),
             ("human", "Target Base: {base_url}\nDiscovered Surface: {discovered}\nPast Records: {past_memory}\nProduce surface reconnaissance output:")
         ])
-        structured_recon = llm.with_structured_output(ReconOutput)
+        structured_recon = _configured_llm().with_structured_output(ReconOutput)
         recon = (prompt | structured_recon).invoke({
             "base_url": base_url,
             "past_memory": state["past_memory"],
@@ -541,7 +604,7 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
                 ("system", "You are an automated Security Test Formulation Agent (Red Agent 2). " + instruction),
                 ("human", "Recon Data: {recon}\nBase URL: {base_url}\nGenerate validation request plan:")
             ])
-            structured_exec = llm.with_structured_output(AttackPlan)
+            structured_exec = _configured_llm().with_structured_output(AttackPlan)
             plan_obj = (prompt | structured_exec).invoke({
                 "recon": json.dumps(recon),
                 "base_url": state["target_url"]
@@ -587,6 +650,7 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
                 report_dict["technical_findings"] += " | " + recon_notes.split("Crypto-posture:")[-1].strip()
         except Exception:
             pass
+        report_dict["confidence_source"] = "heuristic-fallback"
         return {
             "detection_report": report_dict,
             "threat_detected": report_dict["threat_detected"],
@@ -604,15 +668,17 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
                        "4. If status is 4xx, threat_detected=False."),
             ("human", "Endpoint: {url}\nStatus: {status}\nPayload: {payload}\nResponse: {body}\nEvaluate telemetry:")
         ])
-        structured_detection = llm.with_structured_output(DetectionReport)
+        structured_detection = _configured_llm().with_structured_output(DetectionReport)
         report = (prompt | structured_detection).invoke({
             "url": url,
             "status": status,
             "payload": payload,
             "body": body
         })
+        report_dict = report.model_dump()
+        report_dict["confidence_source"] = "llm"
         return {
-            "detection_report": report.model_dump(),
+            "detection_report": report_dict,
             "threat_detected": report.threat_detected,
             "vulnerability_type": report.vulnerability_type
         }
@@ -625,6 +691,7 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
                 report_dict["technical_findings"] += " | " + recon_notes.split("Crypto-posture:")[-1].strip()
         except Exception:
             pass
+        report_dict["confidence_source"] = "heuristic-fallback"
         return {
             "detection_report": report_dict,
             "threat_detected": report_dict["threat_detected"],
@@ -648,7 +715,7 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
                            "If vulnerability_type is 'XSS', target_rule_name='block_xss'."),
                 ("human", "Detection Report: {report}\nPrevious attempt feedback: {feedback}\nDetermine mitigation action and engineering remediation:")
             ])
-            structured_hardening = llm.with_structured_output(HardeningPlan)
+            structured_hardening = _configured_llm().with_structured_output(HardeningPlan)
             plan_obj = (prompt | structured_hardening).invoke({
                 "report": json.dumps(det),
                 "feedback": state.get("reflection_feedback") or "none — first attempt",
@@ -722,6 +789,14 @@ def _route_after_retest(state: EpisodeState) -> str:
     return "score"
 
 
+def _env_float(name: str):
+    try:
+        v = os.getenv(name, "").strip()
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
 def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
     score = 100.0
     if state["threat_detected"] and state["http_status"] == 200:
@@ -789,19 +864,43 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
         except Exception as e:
             print(f"[pr] verdict hook failed: {e}")
 
-    return {"posture_score": score, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url}
+    # FinOps block: latency is always measured; tokens/cost only when the
+    # live LLM actually ran (nulls in fallback mode — never fabricated).
+    lat = state.get("node_latencies_ms") or {}
+    live = llm is not None
+    pt = _USAGE["prompt_tokens"] if live else None
+    ct = _USAGE["completion_tokens"] if live else None
+    measured = bool(live and (pt or ct))
+    price_in = _env_float("PENGUARD_PRICE_PER_1K_IN_USD")
+    price_out = _env_float("PENGUARD_PRICE_PER_1K_OUT_USD")
+    cost = None
+    if measured and price_in is not None and price_out is not None:
+        cost = round(pt / 1000 * price_in + ct / 1000 * price_out, 6)
+    inference_metrics = {
+        "model": LLM_MODEL_ID if live else None,
+        "mode": "llm-live" if live else "fallback-deterministic",
+        "node_latencies_ms": lat,
+        "total_latency_ms": round(sum(lat.values()), 1),
+        "tokens_prompt": pt,
+        "tokens_completion": ct,
+        "tokens_measured": measured,
+        "estimated_cost_usd": cost,
+    }
+
+    return {"posture_score": score, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url,
+            "llm_prompt_tokens": pt, "llm_completion_tokens": ct,
+            "inference_metrics": inference_metrics}
 
 workflow = StateGraph(EpisodeState)
 
-workflow.add_node("retrieve_memory", memory_retrieval_node)
-workflow.add_node("red_recon", red_recon_agent)
-workflow.add_node("red_execution", red_execution_agent)
-workflow.add_node("blue_detection", blue_detection_agent)
-workflow.add_node("blue_hardening", blue_hardening_agent)
-workflow.add_node("retest_step", retest_node)
-workflow.add_node("scoring_and_storage", scoring_and_storage_node)
-
-workflow.add_node("reflection_prep", reflection_prep_node)
+workflow.add_node("retrieve_memory", _timed("retrieve_memory")(memory_retrieval_node))
+workflow.add_node("red_recon", _timed("red_recon")(red_recon_agent))
+workflow.add_node("red_execution", _timed("red_execution")(red_execution_agent))
+workflow.add_node("blue_detection", _timed("blue_detection")(blue_detection_agent))
+workflow.add_node("blue_hardening", _timed("blue_hardening")(blue_hardening_agent))
+workflow.add_node("retest_step", _timed("retest_step")(retest_node))
+workflow.add_node("scoring_and_storage", _timed("scoring_and_storage")(scoring_and_storage_node))
+workflow.add_node("reflection_prep", _timed("reflection_prep")(reflection_prep_node))
 
 workflow.set_entry_point("retrieve_memory")
 workflow.add_edge("retrieve_memory", "red_recon")

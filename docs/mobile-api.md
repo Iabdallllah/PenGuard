@@ -25,6 +25,8 @@ This document defines the client-server contract between the PenGuard mobile app
 | `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE. | Scenario Picker |
 | `GET` | `/api/reports/compliance` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
 | `GET` | `/api/reports/sarif` | SARIF 2.1.0 findings export (open). | CI Upload / Share |
+| `POST` | `/api/reports/seal` | Freeze an immutable SHA-256 ledger snapshot (requires `X-API-Key`). | Audit / Compliance Officer |
+| `GET` | `/api/reports/verify/{hash}` | Public tamper check returning the sealed snapshot (open). | Auditor Verification |
 
 ---
 

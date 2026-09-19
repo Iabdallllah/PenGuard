@@ -290,6 +290,10 @@ python -m pytest tests/ -q
 - `GET /api/posture` — `{"score": n, "status": "HEALTHY|DEGRADED|CRITICAL", "active_vulnerabilities": n, "mitigated_vulnerabilities": n, "last_audit_timestamp": "..."}` (open)
 - `GET /api/reports/compliance` — dynamic binary PDF from live ledger (open)
 - `GET /api/reports/sarif` — SARIF 2.1.0 export (8 rules + threat findings) for GitHub code scanning / Snyk / SonarQube (open)
+- `POST /api/reports/seal` — freeze an immutable SHA-256 snapshot of the ledger — **requires `X-API-Key`**
+- `GET /api/reports/verify/{hash}` — public tamper check returning the sealed snapshot (open)
+- `GET /.well-known/security.txt` — RFC 9116 disclosure + trust posture (open)
+- Episodes carry `inference_metrics` (per-node latency always; tokens/cost only with live LLM + configured rates) and `explainability` (confidence + source + rule + rationale)
 - `GET /metrics` & `GET /api/metrics` — Prometheus exposition (open)
 - `WS /ws/episodes` — real-time episode streaming (array on connect, then per-episode frames; 30s ping)
 
