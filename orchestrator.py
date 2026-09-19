@@ -248,6 +248,9 @@ class EpisodeState(TypedDict):
     retest_status: Optional[int]
     posture_score: Optional[float]
     pr_url: Optional[str]
+    pr_verdict_url: Optional[str]
+    reflection_attempts: int
+    reflection_feedback: Optional[str]
 
 def _crawl_and_discover(base_url: str, scenario: str) -> dict:
     """Dynamic attack surface discovery — probes base_url to find real endpoint."""
@@ -644,11 +647,12 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
                            "If vulnerability_type is 'Business Logic Abuse', target_rule_name='block_business_logic_abuse'. "
                            "If vulnerability_type is 'SQL Injection', target_rule_name='block_sql_injection'. "
                            "If vulnerability_type is 'XSS', target_rule_name='block_xss'."),
-                ("human", "Detection Report: {report}\nDetermine mitigation action and engineering remediation:")
+                ("human", "Detection Report: {report}\nPrevious attempt feedback: {feedback}\nDetermine mitigation action and engineering remediation:")
             ])
             structured_hardening = llm.with_structured_output(HardeningPlan)
             plan_obj = (prompt | structured_hardening).invoke({
-                "report": json.dumps(det)
+                "report": json.dumps(det),
+                "feedback": state.get("reflection_feedback") or "none — first attempt",
             })
             plan_dict = plan_obj.model_dump()
         except Exception as e:
@@ -667,6 +671,14 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
         except Exception as e:
             print(f"[hardening] patch apply failed: {e}")
             patch_ok = False
+
+    # Self-reflection: carry the previous failure into this attempt's guidance
+    feedback = state.get("reflection_feedback")
+    if feedback:
+        plan_dict = dict(plan_dict)
+        plan_dict["remediation_suggestion"] = (
+            (plan_dict.get("remediation_suggestion", "") + f" [Self-reflection: {feedback}]").strip()
+        )
 
     return {
         "hardening_plan": plan_dict,
@@ -691,6 +703,26 @@ def retest_node(state: EpisodeState) -> Dict[str, Any]:
             retest_status = 0
     return {"retest_status": retest_status}
 
+def reflection_prep_node(state: EpisodeState) -> Dict[str, Any]:
+    """Bounded self-reflection: turn a failed retest into feedback for the next
+    hardening attempt (max 3). Terminates — attempts only increase here."""
+    attempts = state.get("reflection_attempts", 0) + 1
+    rule = (state.get("hardening_plan") or {}).get("target_rule_name", "?")
+    fb = (f"Reflection attempt {attempts}/3: retest returned {state.get('retest_status')} "
+          f"(patch_applied={state.get('patch_applied')}) — rule '{rule}' did not hold against "
+          f"{state.get('vulnerability_type')}. Re-apply a stricter mitigation without weakening other gates.")
+    print(f"[reflection] {fb}")
+    return {"reflection_attempts": attempts, "reflection_feedback": fb}
+
+
+def _route_after_retest(state: EpisodeState) -> str:
+    if (state.get("threat_detected")
+            and (not state.get("patch_applied") or state.get("retest_status") not in (400, 401, 403))
+            and state.get("reflection_attempts", 0) < 3):
+        return "reflect"
+    return "score"
+
+
 def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
     score = 100.0
     if state["threat_detected"] and state["http_status"] == 200:
@@ -714,6 +746,7 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
 
     # Git-Native PR for XSS (Step 1) — via GitHub API (zero storage/memory)
     pr_url = None
+    pr_verdict_url = None
     if state.get("threat_detected") and state.get("vulnerability_type") == "XSS":
         try:
             from remediator import create_security_pr, generate_xss_patch
@@ -744,7 +777,20 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
             print(f"[pr] failed: {e}")
             pr_url = f"PR Failed: {e}"
 
-    return {"posture_score": score, "pr_url": pr_url}
+    # Autonomous verdict: comment the sandbox re-test outcome on the real PR
+    if (pr_url or "").startswith("http"):
+        try:
+            from remediator import post_pr_verdict
+            rs = state.get("retest_status")
+            if rs in (400, 401, 403):
+                verdict = f"✅ Exploit mitigated — automated sandbox re-test blocked with HTTP {rs}."
+            else:
+                verdict = f"⚠️ Re-test did not block (HTTP {rs}) — patch needs operator review before merge."
+            pr_verdict_url = post_pr_verdict(pr_url, verdict, state["episode_id"])
+        except Exception as e:
+            print(f"[pr] verdict hook failed: {e}")
+
+    return {"posture_score": score, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url}
 
 workflow = StateGraph(EpisodeState)
 
@@ -756,13 +802,16 @@ workflow.add_node("blue_hardening", blue_hardening_agent)
 workflow.add_node("retest_step", retest_node)
 workflow.add_node("scoring_and_storage", scoring_and_storage_node)
 
+workflow.add_node("reflection_prep", reflection_prep_node)
+
 workflow.set_entry_point("retrieve_memory")
 workflow.add_edge("retrieve_memory", "red_recon")
 workflow.add_edge("red_recon", "red_execution")
 workflow.add_edge("red_execution", "blue_detection")
 workflow.add_edge("blue_detection", "blue_hardening")
 workflow.add_edge("blue_hardening", "retest_step")
-workflow.add_edge("retest_step", "scoring_and_storage")
+workflow.add_conditional_edges("retest_step", _route_after_retest, {"reflect": "reflection_prep", "score": "scoring_and_storage"})
+workflow.add_edge("reflection_prep", "blue_hardening")
 workflow.add_edge("scoring_and_storage", END)
 
 app_graph = workflow.compile()

@@ -24,6 +24,7 @@ This document defines the client-server contract between the PenGuard mobile app
 | `POST` | `/api/episodes/{id}/approve` | Approve the attached GitHub PR via official review (requires `X-API-Key`; 409 if no PR or still running). | Approve Button (Episode Detail) |
 | `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE. | Scenario Picker |
 | `GET` | `/api/reports/compliance` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
+| `GET` | `/api/reports/sarif` | SARIF 2.1.0 findings export (open). | CI Upload / Share |
 
 ---
 

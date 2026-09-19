@@ -108,6 +108,31 @@ def _load_episodes() -> List[Dict[str, Any]]:
             print(f"[store] load failed: {e}")
     return []
 
+def _notify_webhook(record: Dict[str, Any]):
+    """Fire-and-forget SOC alert to Discord/Slack incoming webhook.
+
+    Env-gated (PENGUARD_WEBHOOK_URL); never raises; never carries secrets or
+    raw payload query strings — only operational verdict fields.
+    """
+    url = os.getenv("PENGUARD_WEBHOOK_URL", "").strip()
+    if not url or not url.startswith("http"):
+        return
+    try:
+        import requests as _rq
+        label = record.get("attack_label") or record.get("attack_type") or "unknown"
+        ok = record.get("retest_status") in (400, 401, 403)
+        text = (f"{'✅' if ok else '🚨'} PenGuard: {label} — "
+                f"initial={record.get('status')} retest={record.get('retest_status')} "
+                f"patched={record.get('patch_applied')} "
+                f"CVSS={record.get('cvss_score')} ({record.get('severity')}) "
+                f"target={record.get('base_url')} episode={record.get('id')}")
+        if (record.get("pr_url") or "").startswith("http"):
+            text += f" PR: {record['pr_url']}"
+        _rq.post(url, json={"text": text, "content": text}, timeout=5)
+    except Exception as e:
+        print(f"[notify] webhook failed: {e}")
+
+
 def _save_episodes():
     # Save to DB if available, always also to JSON as backup
     if _use_db and SessionLocal and DBEpisode:
@@ -280,6 +305,10 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
         hp = result["hardening_plan"]
         logs.append(f"[hardening] rule={hp.get('target_rule_name')} action={hp.get('mitigation_action')}")
     logs.append(f"[patch] applied={result.get('patch_applied')} retest_status={result.get('retest_status')}")
+    if result.get("reflection_attempts"):
+        logs.append(f"[reflection] attempts={result.get('reflection_attempts')} feedback={str(result.get('reflection_feedback'))[:180]}")
+    if result.get("pr_verdict_url"):
+        logs.append(f"[pr] verdict comment: {result.get('pr_verdict_url')}")
     logs.append(f"[score] posture={result.get('posture_score')} duration={duration_ms}ms")
     # sandbox container logs if available
     try:
@@ -296,18 +325,21 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
 def health():
     return {"status": "ok", "episodes": len(episodes_db), "time": datetime.utcnow().isoformat() + "Z"}
 
+SCENARIO_CATALOG = [
+    {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
+    {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
+    {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
+    {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021"},
+    {"key": "csrf", "label": "Cross-Site Request Forgery (CSRF)", "owasp": "A01:2021"},
+    {"key": "ssrf", "label": "Server-Side Request Forgery (SSRF)", "owasp": "A10:2021"},
+    {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021"},
+    {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021"},
+]
+
+
 @app.get("/api/scenarios")
 def list_scenarios():
-    base = [
-        {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
-        {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
-        {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
-        {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021"},
-        {"key": "csrf", "label": "Cross-Site Request Forgery (CSRF)", "owasp": "A01:2021"},
-        {"key": "ssrf", "label": "Server-Side Request Forgery (SSRF)", "owasp": "A10:2021"},
-        {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021"},
-        {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021"},
-    ]
+    base = [dict(s) for s in SCENARIO_CATALOG]
     for s in base:
         s.update(VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5}))
     return base
@@ -492,6 +524,55 @@ table.data-table td {{ padding: 6px 8px; font-size: 8pt; border-bottom: 1px soli
 </body></html>"""
     return html
 
+def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """SARIF 2.1.0 export of the live ledger for GitHub code scanning / enterprise tooling."""
+    rules = []
+    for s in SCENARIO_CATALOG:
+        m = VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
+        rules.append({
+            "id": f"PENGUARD-{s['key'].upper()}",
+            "name": s["label"],
+            "shortDescription": {"text": f"{s['label']} ({s['owasp']})"},
+            "fullDescription": {"text": f"PenGuard autonomous probe for {s['label']}; OWASP {s['owasp']}, {m['cwe']}"},
+            "helpUri": "https://owasp.org/Top10/",
+            "properties": {"owasp": s["owasp"], "cvss": m["cvss"], "severity": m["severity"], "cwe": m["cwe"]},
+        })
+    results = []
+    for e in episodes or []:
+        if not e.get("threat_flag"):
+            continue
+        key = e.get("attack_type") or e.get("scenario") or "misconfig"
+        m = VECTOR_METRICS.get(key, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
+        results.append({
+            "ruleId": f"PENGUARD-{key.upper()}",
+            "level": "error" if m["severity"] == "HIGH" else "warning",
+            "message": {"text": f"{e.get('attack_label', key)}: initial={e.get('status')} retest={e.get('retest_status')} patched={e.get('patch_applied')}"},
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": e.get("target", "")}}}],
+            "properties": {"episode_id": e.get("id"), "timestamp": e.get("timestamp"),
+                           "cvss": m["cvss"], "cwe": m["cwe"], "pr_url": e.get("pr_url"),
+                           "approved": bool(e.get("approved", False))},
+        })
+    return {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "PenGuard",
+                "version": "2.4",
+                "informationUri": "https://github.com/Iabdallllah/PenGuard",
+                "rules": rules,
+            }},
+            "results": results,
+        }],
+    }
+
+
+@app.get("/api/reports/sarif")
+def get_sarif_report():
+    # Dynamic per-operation: always regenerate from the live ledger (open route)
+    return _build_sarif(get_episodes())
+
+
 @app.get("/api/reports/compliance")
 def get_compliance_report():
     # Dynamic per-operation: always regenerate from current episodes_db
@@ -632,6 +713,8 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "scenario": scenario_norm,
             "base_url": base_url,
             "pr_url": result.get("pr_url"),
+            "pr_verdict_url": result.get("pr_verdict_url"),
+            "reflection_attempts": result.get("reflection_attempts", 0),
             # expose extra telemetry for inspector without breaking UI
             "recon_data": result.get("recon_data"),
             "detection_report": result.get("detection_report"),
@@ -647,6 +730,7 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
                 episodes_db[_i] = record
                 _save_episodes()
                 _db_add_episode(record)
+                _notify_webhook(record)
                 break
         else:
             print(f"[run] episode {ep_id} cleared mid-run — skipping persistence")
@@ -674,6 +758,7 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             if _rec.get("id") == ep_id:
                 _rec["run_status"] = "failed"
                 _rec["logs"] = (_rec.get("logs") or []) + [f"[run] background execution failed: {e}"]
+                _notify_webhook(_rec)
                 break
         _save_episodes()
         try:

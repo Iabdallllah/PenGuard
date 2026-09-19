@@ -272,8 +272,11 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 - `GET /api/scenarios` — list 8 vectors with CVSS/severity/CWE/weight (open)
 - `GET /api/posture` — `{"score": n, "status": "HEALTHY|DEGRADED|CRITICAL", "active_vulnerabilities": n, "mitigated_vulnerabilities": n, "last_audit_timestamp": "..."}` (open)
 - `GET /api/reports/compliance` — dynamic binary PDF from live ledger (open)
+- `GET /api/reports/sarif` — SARIF 2.1.0 export (8 rules + threat findings) for GitHub code scanning / Snyk / SonarQube (open)
 - `GET /metrics` & `GET /api/metrics` — Prometheus exposition (open)
 - `WS /ws/episodes` — real-time episode streaming (array on connect, then per-episode frames; 30s ping)
+
+B2B loop: bounded self-reflection (failed retests retry hardening, max 3 attempts, logged per episode) → sandbox re-test verdict auto-commented on the real PR → Discord/Slack webhook alert per completed episode (`PENGUARD_WEBHOOK_URL`).
 
 Selective auth: only `POST /run`, `POST /approve`, and `DELETE /episodes` require `X-API-Key`; all `GET` routes + WS are open.
 

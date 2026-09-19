@@ -1,5 +1,6 @@
 import os
 import html
+import re
 from typing import Optional
 
 try:
@@ -156,3 +157,38 @@ def create_security_pr(file_path: str, patched_code: str, vuln_name: str, episod
         return f"PR Failed: GitHub API {ge.status} {ge.data.get('message', str(ge)) if hasattr(ge, 'data') else str(ge)}"
     except Exception as e:
         return f"PR Failed: {e}"
+
+
+def post_pr_verdict(pr_url: str, verdict: str, episode_id: str) -> Optional[str]:
+    """Post the automated re-test verdict as a PR comment. Returns the comment
+    URL on success, None when skipped/unavailable (never raises)."""
+    if not (pr_url or "").startswith("http"):
+        return None
+    token = os.getenv("GITHUB_TOKEN")
+    repo_name = os.getenv("GITHUB_TARGET_REPO")
+    if not token or not repo_name:
+        print("[pr] verdict skipped: GITHUB_TOKEN or GITHUB_TARGET_REPO not configured")
+        return None
+    if not _has_github:
+        print("[pr] verdict skipped: PyGithub not installed")
+        return None
+    m = re.search(r"/pull/(\d+)", pr_url)
+    if not m:
+        print(f"[pr] verdict skipped: no PR number in {pr_url}")
+        return None
+    try:
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        pr = repo.get_pull(int(m.group(1)))
+        if (pr.html_url or "") != pr_url:
+            print("[pr] verdict skipped: PR URL mismatch")
+            return None
+        body = (f"### PenGuard Automated Re-test Verdict\n\n{verdict}\n\n"
+                f"- **Episode:** `{episode_id}`\n"
+                f"> Posted by the Blue Agent after patch application. Re-run the episode to reproduce.")
+        comment = pr.create_issue_comment(body)
+        print(f"[pr] verdict posted: {comment.html_url}")
+        return comment.html_url
+    except Exception as e:
+        print(f"[pr] verdict failed: {e}")
+        return None
