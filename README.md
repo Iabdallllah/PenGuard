@@ -35,7 +35,7 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
                                         ▼
                                ┌──────────────────┐
                                │  GitHub PR       │──► Sandbox Re-test ──► Verdict Comment
-                               └──────────────────┘         │
+                               └──────────────────┘        │
                                                            ▼
                                                     ┌─────────────┐
                                                     │  CI Green   │
