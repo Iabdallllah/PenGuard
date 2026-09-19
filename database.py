@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, Text, DateTime, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker

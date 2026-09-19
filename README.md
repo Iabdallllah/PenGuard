@@ -1,12 +1,17 @@
 # PenGuard: Autonomous Purple Team Platform
 
 [![CI](https://github.com/Iabdallllah/PenGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/Iabdallllah/PenGuard/actions)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![NIST FIPS 203/204](https://img.shields.io/badge/NIST-PQC%20Ready-2E7D32)](docs/proposal.md)
+[![SARIF 2.1.0](https://img.shields.io/badge/SARIF-2.1.0-6A1B9A)](https://sarifweb.azurewebsites.net)
+[![API Status](https://img.shields.io/website?url=https%3A%2F%2Fheroic-insight-production-d97d.up.railway.app%2Fapi%2Fhealth&label=API)](https://heroic-insight-production-d97d.up.railway.app/api/health)
+[![Frontend Status](https://img.shields.io/website?url=https%3A%2F%2Fpenguardai.vercel.app%2F&label=Dashboard)](https://penguardai.vercel.app/)
 [![Vercel](https://img.shields.io/badge/Vercel-000?logo=vercel&logoColor=white)](https://vercel.com)
 [![Railway](https://img.shields.io/badge/Railway-0B0D0E?logo=railway&logoColor=white)](https://railway.app)
 [![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **Live Demo:** Frontend → **[https://penguardai.vercel.app/](https://penguardai.vercel.app/)** · API → **[https://heroic-insight-production-d97d.up.railway.app/api/health](https://heroic-insight-production-d97d.up.railway.app/api/health)** · Grafana → `http://localhost:3001` (admin/admin) · Mobile Spec → `docs/mobile-app.md`
 
@@ -28,9 +33,9 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
                          │                             │ create_git_ref
                          └──────────────┬──────────────┘
                                         ▼
-                              ┌──────────────────┐
-                              │  GitHub PR       │──► Vercel Preview ──► Verifier
-                              └──────────────────┘         │
+                               ┌──────────────────┐
+                               │  GitHub PR       │──► Sandbox Re-test ──► Verdict Comment
+                               └──────────────────┘         │
                                                            ▼
                                                     ┌─────────────┐
                                                     │  CI Green   │
@@ -137,16 +142,16 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
 
 ## Attack Vectors & Compliance Controls (8 OWASP Vectors)
 
-| Vector | OWASP Tag | Target Surface | CVSS | Initial → Secured | Framework Controls |
-| :--- | :--- | :--- | :---: | :--- | :--- |
-| **Broken Access Control (IDOR)** | A01:2021 | `/api/user/{id}` | 7.5 | 200 → 403 | SOC 2 CC6.1, NIST AC-3 |
-| **SQL Injection** | A03:2021 | `/api/records?query=` | 8.6 | 200 → 403 | ISO 27001 A.8.28, NIST SI-4 |
-| **Business Logic Abuse** | A04:2021 | `/api/checkout` | 7.4 | 200 → 400 | SOC 2 CC7.1, NIST SI-4 |
-| **Cross-Site Scripting (XSS)** | A03:2021 | `/api/search?q=` | 6.1 | 200 → 400 | OWASP A03:2021, NIST SI-10 |
-| **CSRF** | A01:2021 | `/api/transfer` | 6.5 | 200 → 403 | SOC 2 CC6.1, NIST AC-8 |
-| **SSRF** | A10:2021 | `/api/fetch?url=` | 8.5 | 200 → 403 | NIST SC-7, ISO A.13.1 |
-| **Broken Authentication** | A07:2021 | `/api/login` | 8.1 | 200 → 401 | NIST IA-2, SOC 2 CC6.1 |
-| **Security Misconfiguration** | A05:2021 | `/api/debug` | 5.3 | 200 → 403 | ISO A.12.5, NIST CM-7 |
+| Vector | OWASP Tag | Target Surface | CVSS | Initial → Secured | Verification | Framework Controls |
+| :--- | :--- | :--- | :---: | :--- | :---: | :--- |
+| **Broken Access Control (IDOR)** | A01:2021 | `/api/user/{id}` | 7.5 | 200 → 403 | Re-test 403 + RBAC gate | SOC 2 CC6.1, NIST AC-3 |
+| **SQL Injection** | A03:2021 | `/api/records?query=` | 8.6 | 200 → 403 | Re-test 403 + parameterized queries | ISO 27001 A.8.28, NIST SI-4 |
+| **Business Logic Abuse** | A04:2021 | `/api/checkout` | 7.4 | 200 → 400 | Re-test 400 + schema invariants | SOC 2 CC7.1, NIST SI-4 |
+| **Cross-Site Scripting (XSS)** | A03:2021 | `/api/search?q=` | 6.1 | 200 → 400 | Re-test 400 + GitHub PR + verdict comment | OWASP A03:2021, NIST SI-10 |
+| **CSRF** | A01:2021 | `/api/transfer` | 6.5 | 200 → 403 | Re-test 403 + token validation | SOC 2 CC6.1, NIST AC-8 |
+| **SSRF** | A10:2021 | `/api/fetch?url=` | 8.5 | 200 → 403 | Re-test 403 + URL allowlist | NIST SC-7, ISO A.13.1 |
+| **Broken Authentication** | A07:2021 | `/api/login` | 8.1 | 200 → 401 | Re-test 401 + session enforcement | NIST IA-2, SOC 2 CC6.1 |
+| **Security Misconfiguration** | A05:2021 | `/api/debug` | 5.3 | 200 → 403 | Re-test 403 + TLS/HSTS/PQC probe | ISO A.12.5, NIST CM-7 |
 
 ---
 
@@ -154,37 +159,40 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
 
 ```text
 PenGuard/
-├── api_server.py           # FastAPI: /health /episodes /run /posture /scenarios /reports /metrics /ws/episodes
-├── orchestrator.py         # LangGraph 2-Red + 2-Blue + dynamic recon + GitHub PR hook
-├── sandbox_manager.py      # Docker SDK ephemeral sandbox lifecycle
+├── api_server.py           # FastAPI: /health /episodes /run(202) /approve /posture /scenarios /reports /metrics /ws/episodes
+├── orchestrator.py         # LangGraph 2-Red + 2-Blue + reflection loop + recon + PR hook
+├── sandbox_manager.py      # Docker SDK ephemeral sandbox lifecycle (staleness-aware rebuild)
 ├── memory_manager.py       # ChromaDB vector store (fallback in-memory)
-├── remediator.py           # GitHub API PR creator (PyGithub, no clone)
+├── remediator.py           # GitHub API PR creator + re-test verdict comments (PyGithub, no clone)
 ├── database.py             # SQLAlchemy: Episode + PostureMetric (PostgreSQL + SQLite fallback)
-├── generate_pdf.py         # WeasyPrint dynamic HTML→PDF compliance report
 ├── target_app.py           # 8-vuln target + dynamic WAF gates (block_idor, block_sqli, ...)
+├── scripts/legacy/         # Unused standalone scripts (kept out of the import graph)
+├── tests/                  # pytest: contract, posture, SARIF, guards (21 tests, no docker needed)
 ├── sandbox/
 │   ├── Dockerfile          # Sandbox image
 │   └── requirements.txt    # Sandbox runtime
-├── dashboard/              # Next.js 16 VANGUARD SOC UI
+├── dashboard/              # Next.js VANGUARD SOC UI (Vercel root directory)
 │   ├── src/app/page.tsx    # Metrics, inspector, trend, history, Clear, PR button
 │   └── package.json
 ├── docs/
 │   ├── architecture.md     # Academic architecture reference
-│   ├── references.bib      # Citations
+│   ├── references.bib      # Citations (STIX, MITRE, PentestGPT, FIPS 203/204/205)
 │   ├── mobile-api.md       # Flutter ↔ API contract (REST + WS + FCM)
 │   ├── mobile-app.md       # Flutter app spec (screens, state, acceptance)
 │   ├── ui-ux-prd.md        # Unified Web + Mobile PRD
-│   └── proposal.md         # Project proposal
-├── .github/workflows/ci.yml
+│   └── proposal.md         # Project proposal (+ PQC readiness §4.3)
+├── .github/workflows/ci.yml # ruff + pytest + live smoke + dashboard build
+├── SECURITY.md             # Disclosure policy, secrets, crypto posture, scope
+├── LICENSE                 # MIT (2026)
 ├── prometheus.yml
 ├── docker-compose.monitoring.yml
 ├── grafana-dashboard.json
-├── Dockerfile
+├── Dockerfile              # Railway: single-port API + target via start.sh
 ├── start.sh
 ├── railway.json
 ├── nixpacks.toml
-├── vercel.json
-└── requirements.txt
+├── requirements.txt        # Production deps (Railway)
+└── requirements-dev.txt    # pytest + ruff + httpx (CI/local only)
 ```
 
 ---
@@ -250,6 +258,14 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 **Offline Demo Fallback (for viva without internet):**
 - The two `uvicorn` commands above are sufficient — no Docker or external API needed (fallback mock works without `GROQ_API_KEY`).
 - Pre-save screenshots in `docs/screenshots/` (Grafana + Dashboard + PR) to show in slides if network is blocked.
+
+### 5. Run Checks (lint + tests)
+
+```bash
+pip install -r requirements-dev.txt
+ruff check api_server.py orchestrator.py sandbox_manager.py database.py remediator.py memory_manager.py target_app.py tests/
+python -m pytest tests/ -q
+```
 
 ---
 

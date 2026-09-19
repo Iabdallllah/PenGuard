@@ -1,5 +1,4 @@
 import os
-import html
 import re
 from typing import Optional
 
@@ -79,7 +78,7 @@ def create_security_pr(file_path: str, patched_code: str, vuln_name: str, episod
             file_content = repo.get_contents(file_path, ref=new_branch)
             sha = file_content.sha
             original_full = file_content.decoded_content.decode()
-        except Exception as e:
+        except Exception:
             # File not found on new branch — try base
             try:
                 file_content = repo.get_contents(file_path, ref=base_branch)

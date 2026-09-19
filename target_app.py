@@ -1,4 +1,3 @@
-import html
 import sqlite3
 import logging
 from fastapi import FastAPI, HTTPException, Request, Response

@@ -2,7 +2,7 @@ import os
 import re
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List
 
 try:

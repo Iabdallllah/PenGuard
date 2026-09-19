@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Resp
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
 from orchestrator import app_graph, sandbox
@@ -38,8 +39,6 @@ try:
 except Exception as _e:
     print(f"[metrics] instrument failed: {_e}")
 
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-
 # Register both /metrics and /api/metrics to cover any proxy prefix
 @app.get("/metrics", include_in_schema=False)
 @app.get("/api/metrics", include_in_schema=False)
@@ -60,7 +59,7 @@ _STORE_PATH = os.path.join(os.path.dirname(__file__), "episodes_store.json")
 
 # --- DB with fallback ---
 try:
-    from database import SessionLocal, Episode as DBEpisode, PostureMetric, init_db, _db_available, engine
+    from database import SessionLocal, Episode as DBEpisode, PostureMetric, _db_available, engine
     _use_db = _db_available and engine is not None
     if _use_db:
         print(f"[database] using {str(engine.url).split('@')[-1][:40]}")
@@ -653,7 +652,7 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             except Exception as _e:
                 print(f"[sandbox] reset failed: {_e}")
         else:
-            base_url = raw_target.rstrip("/")
+            base_url = (custom_target or "").rstrip("/")
 
         # mark running (placeholder already visible as QUEUED)
         for _e in episodes_db:
