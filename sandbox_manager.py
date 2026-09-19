@@ -1,5 +1,8 @@
+import os
+import re
 import time
 import requests
+from datetime import datetime, timezone
 from typing import List
 
 try:
@@ -31,17 +34,39 @@ class SandboxManager:
                 pass
         return self._client
 
+    def _image_is_stale(self) -> bool:
+        """True when the baked image is missing or older than its sources.
+
+        Prevents episodes from running against a fossil image after
+        target_app.py gains new routes (classic cause of mystery 404s).
+        """
+        try:
+            img = self.client.images.get(self.image_name)
+        except Exception:
+            return True  # missing image -> must build
+        try:
+            created_raw = img.attrs.get("Created", "")
+            # Docker timestamps carry nanoseconds; fromisoformat needs <= microseconds
+            created_raw = re.sub(r"(\.\d{6})\d+", r"\1", created_raw)
+            created_ts = datetime.fromisoformat(created_raw.replace("Z", "+00:00")).timestamp()
+        except Exception as e:
+            print(f"[sandbox] cannot parse image date ({e}) — rebuilding to be safe")
+            return True
+        for src in ("target_app.py", os.path.join("sandbox", "Dockerfile")):
+            try:
+                if os.path.getmtime(src) > created_ts:
+                    print(f"[sandbox] {src} newer than image — rebuild needed")
+                    return True
+            except OSError:
+                continue
+        return False
+
     def build_image(self, force: bool = False):
         if not _docker_available or self.client is None:
             print("[sandbox] docker not available, skip build_image")
             return
-        if not force:
-            try:
-                self.client.images.get(self.image_name)
-                return
-            except Exception:
-                # docker.errors.ImageNotFound or client missing
-                pass
+        if not force and not self._image_is_stale():
+            return
         try:
             self.client.images.build(
                 path=".",
