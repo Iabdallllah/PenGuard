@@ -27,6 +27,18 @@ def _record(eid, attack_type, label, threat, patched, status, retest):
             "cvss_score": 8.6, "severity": "HIGH", "cwe": "CWE-89"}
 
 
+def test_sarif_taxonomies_and_rule_tags(client):
+    drv = client.get("/api/reports/sarif").json()["runs"][0]["tool"]["driver"]
+    tax = drv["taxonomies"][0]
+    assert tax["name"] == "MITRE-ATT&CK-Enterprise"
+    assert {t["id"] for t in tax["taxa"]} >= {"T1190", "T1059.007", "T1078", "T1082", "T1185"}
+    xss = next(r for r in drv["rules"] if r["id"] == "PENGUARD-XSS")
+    assert "T1059.007" in xss["properties"]["tags"]
+    rel = xss["relationships"][0]
+    assert rel["target"]["id"] == "T1059.007"
+    assert rel["kinds"] == ["relevant"]
+
+
 def test_sarif_threat_only(client, clean_ledger):
     import api_server
     api_server._db_add_episode(_record("s1", "sql_injection", "SQL Injection", True, True, 200, 403))

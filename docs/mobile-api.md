@@ -22,7 +22,7 @@ This document defines the client-server contract between the PenGuard mobile app
 | `GET` | `/api/episodes/{id}` | Detailed trace of an episode (logs, payload, diff, and PR link). | Episode Detail Screen |
 | `DELETE` | `/api/episodes` | Purge telemetry and episode ledger from PostgreSQL. | Reset / Purge Action |
 | `POST` | `/api/episodes/{id}/approve` | Approve the attached GitHub PR via official review (requires `X-API-Key`; 409 if no PR or still running). | Approve Button (Episode Detail) |
-| `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE. | Scenario Picker |
+| `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE + MITRE ATT&CK triple. | Scenario Picker |
 | `GET` | `/api/reports/compliance` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
 | `GET` | `/api/reports/sarif` | SARIF 2.1.0 findings export (open). | CI Upload / Share |
 | `POST` | `/api/reports/seal` | Freeze an immutable SHA-256 ledger snapshot (requires `X-API-Key`). | Audit / Compliance Officer |

@@ -16,8 +16,18 @@ def test_scenarios_exactly_eight(client):
     data = r.json()
     assert {s["key"] for s in data} == REQUIRED_VECTORS
     for s in data:
-        for field in ("key", "label", "owasp", "cvss", "severity", "cwe", "weight"):
+        for field in ("key", "label", "owasp", "cvss", "severity", "cwe", "weight",
+                      "mitre_id", "mitre_technique", "mitre_tactic"):
             assert field in s, f"missing {field} in {s.get('key')}"
+
+
+def test_mitre_mapping_spot_checks():
+    by_key = {s["key"]: s for s in api_server.list_scenarios()}
+    assert by_key["sql_injection"]["mitre_id"] == "T1190"
+    assert by_key["xss"]["mitre_id"] == "T1059.007"
+    assert by_key["xss"]["mitre_tactic"] == "Execution"
+    assert by_key["misconfig"]["mitre_id"] == "T1082"
+    assert api_server._mitre_for("nope")["mitre_id"] == "T1190"  # safe fallback
 
 
 def test_vector_metrics_cover_contract():

@@ -47,6 +47,9 @@ class Episode(Base):
     cvss_score = Column(Float, nullable=True)
     severity = Column(String, nullable=True)
     cwe = Column(String, nullable=True)
+    mitre_id = Column(String, nullable=True)
+    mitre_technique = Column(String, nullable=True)
+    mitre_tactic = Column(String, nullable=True)
     status = Column(Integer)
     retest_status = Column(Integer, nullable=True)
     patch_applied = Column(Boolean)
@@ -106,6 +109,9 @@ def init_db():
                     ("cvss_score", "FLOAT"),
                     ("severity", "VARCHAR"),
                     ("cwe", "VARCHAR"),
+                    ("mitre_id", "VARCHAR"),
+                    ("mitre_technique", "VARCHAR"),
+                    ("mitre_tactic", "VARCHAR"),
                 ]:
                     if col not in existing:
                         conn.execute(text(f"ALTER TABLE episodes ADD COLUMN {col} {ddl}"))

@@ -169,7 +169,8 @@ def _db_add_episode(record: Dict[str, Any]):
             duration_ms=record.get("duration_ms"), scenario=record.get("scenario"), base_url=record.get("base_url"),
             pr_url=record.get("pr_url"), recon_data=record.get("recon_data"), detection_report=record.get("detection_report"),
             hardening_plan=record.get("hardening_plan"), response_body=record.get("response_body"),
-            cvss_score=record.get("cvss_score"), severity=record.get("severity"), cwe=record.get("cwe")
+            cvss_score=record.get("cvss_score"), severity=record.get("severity"), cwe=record.get("cwe"),
+            mitre_id=record.get("mitre_id"), mitre_technique=record.get("mitre_technique"), mitre_tactic=record.get("mitre_tactic")
         )
         db.add(ep)
         db.commit()
@@ -361,15 +362,31 @@ def security_txt():
     return Response(content=body, media_type="text/plain")
 
 SCENARIO_CATALOG = [
-    {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021"},
-    {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021"},
-    {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021"},
-    {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021"},
-    {"key": "csrf", "label": "Cross-Site Request Forgery (CSRF)", "owasp": "A01:2021"},
-    {"key": "ssrf", "label": "Server-Side Request Forgery (SSRF)", "owasp": "A10:2021"},
-    {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021"},
-    {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021"},
+    {"key": "idor", "label": "IDOR / Broken Access Control", "owasp": "A01:2021",
+     "mitre_id": "T1078", "mitre_technique": "Valid Accounts", "mitre_tactic": "Defense Evasion"},
+    {"key": "sql_injection", "label": "SQL Injection", "owasp": "A03:2021",
+     "mitre_id": "T1190", "mitre_technique": "Exploit Public-Facing Application", "mitre_tactic": "Initial Access"},
+    {"key": "business_logic", "label": "Business Logic Abuse", "owasp": "A04:2021",
+     "mitre_id": "T1190", "mitre_technique": "Exploit Public-Facing Application", "mitre_tactic": "Initial Access"},
+    {"key": "xss", "label": "Cross-Site Scripting (XSS)", "owasp": "A03:2021",
+     "mitre_id": "T1059.007", "mitre_technique": "JavaScript", "mitre_tactic": "Execution"},
+    {"key": "csrf", "label": "Cross-Site Request Forgery (CSRF)", "owasp": "A01:2021",
+     "mitre_id": "T1185", "mitre_technique": "Man in the Browser", "mitre_tactic": "Collection"},
+    {"key": "ssrf", "label": "Server-Side Request Forgery (SSRF)", "owasp": "A10:2021",
+     "mitre_id": "T1190", "mitre_technique": "Exploit Public-Facing Application", "mitre_tactic": "Initial Access"},
+    {"key": "broken_auth", "label": "Broken Authentication", "owasp": "A07:2021",
+     "mitre_id": "T1078", "mitre_technique": "Valid Accounts", "mitre_tactic": "Defense Evasion"},
+    {"key": "misconfig", "label": "Security Misconfiguration", "owasp": "A05:2021",
+     "mitre_id": "T1082", "mitre_technique": "System Information Discovery", "mitre_tactic": "Discovery"},
 ]
+
+
+def _mitre_for(key: str) -> Dict[str, str]:
+    """MITRE ATT&CK triple for a scenario key (static taxonomy, no external API)."""
+    for s in SCENARIO_CATALOG:
+        if s["key"] == key:
+            return {"mitre_id": s["mitre_id"], "mitre_technique": s["mitre_technique"], "mitre_tactic": s["mitre_tactic"]}
+    return {"mitre_id": "T1190", "mitre_technique": "Exploit Public-Facing Application", "mitre_tactic": "Initial Access"}
 
 
 @app.get("/api/scenarios")
@@ -404,6 +421,9 @@ def get_episodes():
                         "scenario": r.scenario, "base_url": r.base_url, "pr_url": r.pr_url,
                         "cvss_score": getattr(r, "cvss_score", None), "severity": getattr(r, "severity", None),
                         "cwe": getattr(r, "cwe", None),
+                        "mitre_id": getattr(r, "mitre_id", None),
+                        "mitre_technique": getattr(r, "mitre_technique", None),
+                        "mitre_tactic": getattr(r, "mitre_tactic", None),
                         "recon_data": r.recon_data, "detection_report": r.detection_report,
                         "hardening_plan": r.hardening_plan, "response_body": r.response_body,
                     }
@@ -568,16 +588,24 @@ table.data-table td {{ padding: 6px 8px; font-size: 8pt; border-bottom: 1px soli
 def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     """SARIF 2.1.0 export of the live ledger for GitHub code scanning / enterprise tooling."""
     rules = []
+    taxa = []
     for s in SCENARIO_CATALOG:
         m = VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
         rules.append({
             "id": f"PENGUARD-{s['key'].upper()}",
             "name": s["label"],
             "shortDescription": {"text": f"{s['label']} ({s['owasp']})"},
-            "fullDescription": {"text": f"PenGuard autonomous probe for {s['label']}; OWASP {s['owasp']}, {m['cwe']}"},
+            "fullDescription": {"text": f"PenGuard autonomous probe for {s['label']}; OWASP {s['owasp']}, {m['cwe']}, MITRE {s['mitre_id']} {s['mitre_technique']}"},
             "helpUri": "https://owasp.org/Top10/",
-            "properties": {"owasp": s["owasp"], "cvss": m["cvss"], "severity": m["severity"], "cwe": m["cwe"]},
+            "properties": {"owasp": s["owasp"], "cvss": m["cvss"], "severity": m["severity"], "cwe": m["cwe"],
+                           "tags": ["security", s["mitre_id"], f"tactic/{s['mitre_tactic']}"]},
+            "relationships": [{
+                "target": {"id": s["mitre_id"], "toolComponent": {"name": "MITRE-ATT&CK-Enterprise"}},
+                "kinds": ["relevant"],
+            }],
         })
+        taxa.append({"id": s["mitre_id"], "name": f"{s['mitre_id']}: {s['mitre_technique']}",
+                     "shortDescription": {"text": f"MITRE ATT&CK tactic: {s['mitre_tactic']}"}})
     results = []
     for e in episodes or []:
         if not e.get("threat_flag"):
@@ -591,7 +619,8 @@ def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
             "locations": [{"physicalLocation": {"artifactLocation": {"uri": e.get("target", "")}}}],
             "properties": {"episode_id": e.get("id"), "timestamp": e.get("timestamp"),
                            "cvss": m["cvss"], "cwe": m["cwe"], "pr_url": e.get("pr_url"),
-                           "approved": bool(e.get("approved", False))},
+                           "approved": bool(e.get("approved", False)),
+                           **_mitre_for(key)},
         })
     return {
         "version": "2.1.0",
@@ -602,6 +631,12 @@ def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "version": "2.4",
                 "informationUri": "https://github.com/Iabdallllah/PenGuard",
                 "rules": rules,
+                "taxonomies": [{
+                    "name": "MITRE-ATT&CK-Enterprise",
+                    "shortDescription": {"text": "MITRE ATT&CK Enterprise tactics and techniques (static mapping)"},
+                    "downloadUri": "https://attack.mitre.org",
+                    "taxa": taxa,
+                }],
             }},
             "results": results,
         }],
@@ -797,6 +832,7 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "target": target_endpoint or base_url,
             "attack_type": attack_type_ui,
             "attack_label": SCENARIO_TO_LABEL.get(attack_type_ui, raw_attack or attack_type_ui),
+            **_mitre_for(attack_type_ui),
             "cvss_score": metrics["cvss"],
             "severity": metrics["severity"],
             "cwe": metrics["cwe"],
@@ -918,6 +954,7 @@ async def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks):
         "target": display_base,
         "attack_type": scenario_norm,
         "attack_label": SCENARIO_TO_LABEL.get(scenario_norm, scenario_norm),
+        **_mitre_for(scenario_norm),
         "cvss_score": metrics["cvss"],
         "severity": metrics["severity"],
         "cwe": metrics["cwe"],

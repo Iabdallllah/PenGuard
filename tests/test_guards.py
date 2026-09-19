@@ -36,6 +36,8 @@ def test_run_202_with_mocked_pipeline(client, auth_headers, clean_ledger, monkey
     ep = client.get(f"/api/episodes/{body['episode_id']}").json()
     assert ep["run_status"] == "complete"
     assert ep["retest_status"] == 403
+    assert ep["mitre_id"] == "T1059.007"
+    assert ep["mitre_tactic"] == "Execution"
 
 
 def test_run_concurrency_guard(client, auth_headers, clean_ledger):
