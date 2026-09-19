@@ -38,6 +38,5 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Logs
+# Logs & generated reports (always regenerated via /api/reports/*)
 *.pdf
-!purple-web-executive-audit-report.pdf

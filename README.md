@@ -184,9 +184,10 @@ PenGuard/
 ├── .github/workflows/ci.yml # ruff + pytest + live smoke + dashboard build
 ├── SECURITY.md             # Disclosure policy, secrets, crypto posture, scope
 ├── LICENSE                 # MIT (2026)
-├── prometheus.yml
-├── docker-compose.monitoring.yml
-├── grafana-dashboard.json
+├── monitoring/             # Local observability stack (not part of Railway/Vercel deploys)
+│   ├── docker-compose.monitoring.yml
+│   ├── prometheus.yml
+│   └── grafana-dashboard.json
 ├── Dockerfile              # Railway: single-port API + target via start.sh
 ├── start.sh
 ├── railway.json
@@ -239,9 +240,9 @@ uvicorn api_server:app --host 127.0.0.1 --port 8000 --reload
 # Metrics: http://127.0.0.1:8000/metrics  &  http://127.0.0.1:8000/api/metrics
 
 # Terminal 3: Monitoring (optional, for Grafana demo)
-docker compose -f docker-compose.monitoring.yml up -d
+docker compose -f monitoring/docker-compose.monitoring.yml up -d
 # Prometheus: http://localhost:9090/targets → 1/1 UP
-# Grafana: http://localhost:3001 → admin/admin → Import grafana-dashboard.json
+# Grafana: http://localhost:3001 → admin/admin → Import monitoring/grafana-dashboard.json
 ```
 
 ### 4. Start Telemetry Dashboard
