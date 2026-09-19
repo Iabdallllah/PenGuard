@@ -266,7 +266,8 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 - `GET /api/health` — liveness probe (open)
 - `GET /api/episodes` — list all episodes (PostgreSQL + JSON fallback, open)
 - `GET /api/episodes/{id}` — episode detail (open)
-- `POST /api/episodes/run` — dispatch `{"scenario": "idor"|"sql_injection"|"business_logic"|"xss"|"csrf"|"ssrf"|"broken_auth"|"misconfig", "target_url": ""}` — **requires `X-API-Key`**
+- `POST /api/episodes/run` — dispatch `{"scenario": "idor"|...|"misconfig", "target_url": ""}` → `202 {status: QUEUED, episode_id}` immediately, execution in background, completion via WS — **requires `X-API-Key`** (single-flight: second dispatch while QUEUED/RUNNING → `409`)
+- `POST /api/episodes/{id}/approve` — approve attached GitHub PR as official review — **requires `X-API-Key`** (`409` if no PR / still running, `503` if GitHub unconfigured)
 - `DELETE /api/episodes` — clear history — **requires `X-API-Key`**
 - `GET /api/scenarios` — list 8 vectors with CVSS/severity/CWE/weight (open)
 - `GET /api/posture` — `{"score": n, "status": "HEALTHY|DEGRADED|CRITICAL", "active_vulnerabilities": n, "mitigated_vulnerabilities": n, "last_audit_timestamp": "..."}` (open)
@@ -274,7 +275,7 @@ Open `http://localhost:3000` in your browser. For production, set `NEXT_PUBLIC_A
 - `GET /metrics` & `GET /api/metrics` — Prometheus exposition (open)
 - `WS /ws/episodes` — real-time episode streaming (array on connect, then per-episode frames; 30s ping)
 
-Selective auth: only `POST /run` and `DELETE /episodes` require `X-API-Key`; all `GET` routes + WS are open.
+Selective auth: only `POST /run`, `POST /approve`, and `DELETE /episodes` require `X-API-Key`; all `GET` routes + WS are open.
 
 ---
 

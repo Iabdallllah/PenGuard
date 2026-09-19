@@ -21,6 +21,7 @@ This document defines the client-server contract between the PenGuard mobile app
 | `POST` | `/api/episodes/run` | Trigger an autonomous Red/Blue execution run. | `Dispatch Scenario` Action Button |
 | `GET` | `/api/episodes/{id}` | Detailed trace of an episode (logs, payload, diff, and PR link). | Episode Detail Screen |
 | `DELETE` | `/api/episodes` | Purge telemetry and episode ledger from PostgreSQL. | Reset / Purge Action |
+| `POST` | `/api/episodes/{id}/approve` | Approve the attached GitHub PR via official review (requires `X-API-Key`; 409 if no PR or still running). | Approve Button (Episode Detail) |
 | `GET` | `/api/scenarios` | List 8 OWASP vectors with CVSS/severity/CWE. | Scenario Picker |
 | `GET` | `/api/reports/compliance` | Returns dynamic binary PDF audit report. | PDF Viewer / Native Share Sheet |
 
@@ -45,6 +46,24 @@ This document defines the client-server contract between the PenGuard mobile app
   "episode_id": "02effdae-5412-4c22-b91b-877717bc42b0",
   "timestamp": "2026-09-10T00:05:00Z"
 }
+// The run continues in background; completion is pushed over WS /ws/episodes
+// (poll GET /api/episodes as fallback). Only one run at a time — a second
+// dispatch while QUEUED/RUNNING returns 409.
+```
+
+### Approve PR (`POST /api/episodes/{id}/approve` — requires `X-API-Key` header)
+
+```json
+// Response (200 OK)
+{
+  "status": "approved",
+  "episode_id": "02effdae-5412-4c22-b91b-877717bc42b0",
+  "pr_number": 4,
+  "pr_url": "https://github.com/Iabdallllah/PenGuard/pull/4",
+  "review_url": "https://github.com/Iabdallllah/PenGuard/pull/4#pullrequestreview-123"
+}
+// 404 unknown id · 409 still running or no PR attached (only XSS yields real
+// PRs) · 503 GitHub not configured · 502 review call failed. Idempotent.
 ```
 
 ### Security Posture (`GET /api/posture`)

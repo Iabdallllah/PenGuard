@@ -58,7 +58,7 @@ interface Episode {
   target: string;
   attack_type: string; // normalized to ScenarioKey via backend, but legacy values handled via normalizeAttackKey
   attack_label?: string;
-  status: number;
+  status: number; // "QUEUED" while a background run is in flight (renders as-is; numeric guards stay false)
   retest_status: number | null;
   patch_applied: boolean;
   threat_flag: boolean;
@@ -70,6 +70,8 @@ interface Episode {
   scenario?: string;
   base_url?: string;
   pr_url?: string | null;
+  run_status?: string;
+  approved?: boolean;
   recon_data?: any;
   detection_report?: any;
   hardening_plan?: any;
@@ -567,6 +569,15 @@ export default function Dashboard() {
           setActiveInspector(responseData.episode);
         } else if (responseData.id) {
           setActiveInspector(responseData);
+        } else if (responseData.episode_id) {
+          // 202 Accepted: run continues in background; select the QUEUED
+          // placeholder now, WS/polling refreshes it on completion
+          try {
+            const d = await fetch(apiUrl(`/api/episodes/${responseData.episode_id}`));
+            if (d.ok) setActiveInspector(await d.json());
+          } catch {
+            /* polling fallback picks it up */
+          }
         }
       } else {
         const t = await res.text();

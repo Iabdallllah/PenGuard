@@ -1,12 +1,13 @@
 import os
 import asyncio
+import re
 import subprocess
 import uuid
 import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Security, status
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Response, Security, status, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
@@ -533,33 +534,21 @@ def get_compliance_report():
         },
     )
 
-@app.post("/api/episodes/run", dependencies=[Security(verify_api_key)])
-async def trigger_run(payload: RunRequest):
+# Phase 0 — single-flight guard: the sandbox lifecycle is a singleton, so only
+# one autonomous run may execute at a time. A second dispatch gets 409.
+_run_in_progress: Optional[str] = None
+
+
+async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Optional[str], is_sandbox_request: bool):
+    """Background pipeline for one episode: sandbox + graph + record + broadcast.
+
+    Updates the QUEUED placeholder in place so WS/polling clients observe
+    completion without re-fetching. Never raises — failures are recorded on
+    the episode itself.
+    """
+    global _run_in_progress
     started = datetime.utcnow()
-    # normalize scenario to allowed keys
-    scenario_norm = _normalize_scenario(payload.scenario)
-    if scenario_norm not in ALLOWED_SCENARIOS:
-        raise HTTPException(status_code=400, detail=f"Invalid scenario '{payload.scenario}'. Allowed: {ALLOWED_SCENARIOS}")
-
-    # Determine target handling: empty or sandbox default => use isolated sandbox lifecycle
-    raw_target = (payload.target_url or "").strip()
-    # treat explicit sandbox URL as sandbox request (not custom external)
-    is_sandbox_request = False
-    if not raw_target:
-        is_sandbox_request = True
-    elif raw_target.rstrip("/") == SANDBOX_DEFAULT_URL:
-        is_sandbox_request = True
-    else:
-        # validate URL format for custom targets
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(raw_target)
-            if not parsed.scheme or not parsed.netloc:
-                raise ValueError("missing scheme/netloc")
-        except Exception:
-            raise HTTPException(status_code=400, detail=f"Invalid target_url: {raw_target}")
-
-    base_url: str
+    base_url: str = custom_target or ""
     used_sandbox = False
     try:
         if is_sandbox_request:
@@ -585,7 +574,12 @@ async def trigger_run(payload: RunRequest):
         else:
             base_url = raw_target.rstrip("/")
 
-        ep_id = str(uuid.uuid4())[:8]
+        # mark running (placeholder already visible as QUEUED)
+        for _e in episodes_db:
+            if _e.get("id") == ep_id:
+                _e["run_status"] = "RUNNING"
+                break
+        _save_episodes()
 
         initial_state = {
             "episode_id": ep_id,
@@ -645,9 +639,18 @@ async def trigger_run(payload: RunRequest):
             "response_body": (str(result.get("response_body") or "")[:2000]),
         }
 
-        episodes_db.append(record)
-        _save_episodes()
-        _db_add_episode(record)
+        # Update the QUEUED placeholder in place; if the user cleared history
+        # mid-run, skip persistence rather than resurrecting deleted data.
+        for _i, _rec in enumerate(episodes_db):
+            if _rec.get("id") == ep_id:
+                record["run_status"] = "complete"
+                episodes_db[_i] = record
+                _save_episodes()
+                _db_add_episode(record)
+                break
+        else:
+            print(f"[run] episode {ep_id} cleared mid-run — skipping persistence")
+
         try:
             await broadcast_episodes()
         except Exception:
@@ -658,16 +661,165 @@ async def trigger_run(payload: RunRequest):
                 sandbox.stop_container()
             except Exception:
                 pass
-
-        return {"status": "complete", "episode": record}
-    except HTTPException:
-        raise
     except Exception as e:
         traceback.print_exc()
         # ensure sandbox cleanup on error if we started it
-        if 'used_sandbox' in locals() and used_sandbox:
+        if used_sandbox:
             try:
                 sandbox.stop_container()
             except Exception:
                 pass
+        # record the failure on the placeholder instead of raising (background task)
+        for _rec in episodes_db:
+            if _rec.get("id") == ep_id:
+                _rec["run_status"] = "failed"
+                _rec["logs"] = (_rec.get("logs") or []) + [f"[run] background execution failed: {e}"]
+                break
+        _save_episodes()
+        try:
+            await broadcast_episodes()
+        except Exception:
+            pass
+    finally:
+        if _run_in_progress == ep_id:
+            _run_in_progress = None
+
+
+@app.post("/api/episodes/run", dependencies=[Security(verify_api_key)], status_code=202)
+async def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks):
+    """Dispatch an autonomous run. Returns 202 immediately with the episode id;
+    execution continues in the background and completion is pushed over
+    /ws/episodes (GET /api/episodes polling fallback)."""
+    global _run_in_progress
+    # normalize scenario to allowed keys
+    scenario_norm = _normalize_scenario(payload.scenario)
+    if scenario_norm not in ALLOWED_SCENARIOS:
+        raise HTTPException(status_code=400, detail=f"Invalid scenario '{payload.scenario}'. Allowed: {sorted(ALLOWED_SCENARIOS)}")
+
+    # Determine target handling: empty or sandbox default => use isolated sandbox lifecycle
+    raw_target = (payload.target_url or "").strip()
+    # treat explicit sandbox URL as sandbox request (not custom external)
+    is_sandbox_request = False
+    if not raw_target:
+        is_sandbox_request = True
+    elif raw_target.rstrip("/") == SANDBOX_DEFAULT_URL:
+        is_sandbox_request = True
+    else:
+        # validate URL format for custom targets
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(raw_target)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError("missing scheme/netloc")
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid target_url: {raw_target}")
+
+    # single-flight: reject while a previous run is still executing
+    if _run_in_progress is not None:
+        still = next((e for e in episodes_db if e.get("id") == _run_in_progress and e.get("run_status") in ("QUEUED", "RUNNING")), None)
+        if still is not None:
+            raise HTTPException(status_code=409, detail=f"Run {_run_in_progress} still in progress — wait for completion before dispatching again")
+        _run_in_progress = None  # stale flag (history cleared mid-run); allow new run
+
+    ep_id = str(uuid.uuid4())[:8]
+    _run_in_progress = ep_id
+    now = datetime.utcnow().isoformat() + "Z"
+    display_base = SANDBOX_DEFAULT_URL if is_sandbox_request else raw_target.rstrip("/")
+    metrics = VECTOR_METRICS.get(scenario_norm, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
+    prev_scores = [e.get("score") for e in episodes_db if isinstance(e.get("score"), (int, float))]
+    placeholder: Dict[str, Any] = {
+        "id": ep_id,
+        "target": display_base,
+        "attack_type": scenario_norm,
+        "attack_label": SCENARIO_TO_LABEL.get(scenario_norm, scenario_norm),
+        "cvss_score": metrics["cvss"],
+        "severity": metrics["severity"],
+        "cwe": metrics["cwe"],
+        "status": "QUEUED",
+        "retest_status": None,
+        "patch_applied": False,
+        "threat_flag": False,
+        "score": float(prev_scores[-1]) if prev_scores else 100.0,
+        "remediation": "",
+        "logs": [f"[{now}] Episode {ep_id} queued — autonomous {scenario_norm} run executing in background"],
+        "timestamp": now,
+        "duration_ms": 0,
+        "scenario": scenario_norm,
+        "base_url": display_base,
+        "pr_url": None,
+        "run_status": "QUEUED",
+        "recon_data": None,
+        "detection_report": None,
+        "hardening_plan": None,
+        "response_body": "",
+    }
+    try:
+        episodes_db.append(placeholder)
+        _save_episodes()
+        try:
+            await broadcast_episodes()
+        except Exception:
+            pass
+        background_tasks.add_task(
+            _execute_episode, ep_id, scenario_norm,
+            None if is_sandbox_request else raw_target.rstrip("/"),
+            is_sandbox_request,
+        )
+        return {"status": "QUEUED", "episode_id": ep_id, "timestamp": now}
+    except Exception as e:
+        if _run_in_progress == ep_id:
+            _run_in_progress = None
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/episodes/{episode_id}/approve", dependencies=[Security(verify_api_key)])
+async def approve_episode(episode_id: str):
+    """Record operator approval as an official GitHub PR review (APPROVE).
+
+    Only episodes with a real attached PR can be approved (in practice: XSS).
+    Idempotent — re-approving returns the stored approval.
+    """
+    rec = next((e for e in episodes_db if e.get("id") == episode_id), None)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    if rec.get("run_status") in ("QUEUED", "RUNNING"):
+        raise HTTPException(status_code=409, detail="Episode still running — approve after completion")
+    if rec.get("approved"):
+        return {"status": "already_approved", "episode_id": episode_id,
+                "pr_url": rec.get("pr_url"), "review_url": rec.get("approval_review_url")}
+    pr_url = rec.get("pr_url") or ""
+    m = re.search(r"/pull/(\d+)", pr_url) if pr_url.startswith("http") else None
+    if not m:
+        raise HTTPException(status_code=409, detail="Episode has no GitHub PR attached (only XSS produces real PRs)")
+    pr_number = int(m.group(1))
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    repo_name = os.getenv("GITHUB_TARGET_REPO", "").strip()
+    if not token or not repo_name:
+        raise HTTPException(status_code=503, detail="GitHub not configured (GITHUB_TOKEN / GITHUB_TARGET_REPO)")
+    try:
+        from github import Github
+    except ImportError:
+        raise HTTPException(status_code=503, detail="PyGithub not installed")
+    try:
+        gh = Github(token)
+        repo = gh.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
+        if (pr.html_url or "") != pr_url:
+            raise HTTPException(status_code=409, detail="PR URL mismatch — refusing to approve a different PR")
+        review = pr.create_review(event="APPROVE", body="LGTM — approved by PenGuard operator via API")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"GitHub review failed: {e}")
+    rec["approved"] = True
+    rec["approved_at"] = datetime.utcnow().isoformat() + "Z"
+    rec["approval_review_url"] = getattr(review, "html_url", None)
+    _save_episodes()
+    _db_add_episode(rec)
+    try:
+        await broadcast_episodes()
+    except Exception:
+        pass
+    return {"status": "approved", "episode_id": episode_id, "pr_number": pr_number,
+            "pr_url": pr_url, "review_url": rec["approval_review_url"]}
