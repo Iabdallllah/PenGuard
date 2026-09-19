@@ -292,7 +292,7 @@ function ScenarioSelect({
         aria-controls="scenario-listbox"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "w-full flex items-center justify-between gap-2 pl-3 pr-3 py-2.5 rounded-xl bg-[#0E1626] border text-sm text-slate-200 transition-all outline-none",
+          "w-full h-11 flex items-center justify-between gap-2 pl-3 pr-3 py-2.5 rounded-xl bg-[#0E1626] border text-sm text-slate-200 transition-all outline-none",
           open ? "border-cyan-500/50 ring-4 ring-cyan-500/10" : "border-[#1E293B] hover:border-[#334155] focus:border-cyan-500/40 focus:ring-4 focus:ring-cyan-500/10"
         )}
       >
@@ -1093,7 +1093,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-[1.4fr_0.9fr_auto] gap-4 items-end">
+              <div className="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-[1.4fr_0.9fr_auto] gap-4 items-start">
                 <label className="space-y-1.5">
                   <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">Target URL</span>
                   <div className="relative">
@@ -1104,10 +1104,10 @@ export default function Dashboard() {
                       value={targetUrl}
                       onChange={(e) => setTargetUrl(e.target.value)}
                       placeholder="http://127.0.0.1:8001"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#0E1626] border border-[#1E293B] focus:border-cyan-500/50 focus:ring-4 focus:ring-cyan-500/10 outline-none mono text-sm text-slate-200 placeholder:text-slate-600 transition-all"
+                      className="w-full h-11 pl-9 pr-3 py-2.5 rounded-xl bg-[#0E1626] border border-[#1E293B] focus:border-cyan-500/50 focus:ring-4 focus:ring-cyan-500/10 outline-none mono text-sm text-slate-200 placeholder:text-slate-600 transition-all"
                     />
                   </div>
-                  <span className="text-[11px] text-slate-500 mono hidden sm:block" suppressHydrationWarning>
+                  <span className="text-[11px] text-slate-500 mono hidden sm:block min-h-8" suppressHydrationWarning>
                     Must be reachable from control plane · {API_DISPLAY}
                   </span>
                 </label>
@@ -1116,7 +1116,7 @@ export default function Dashboard() {
                   <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">Scenario</span>
                   {/* Custom Dropdown — replaces native select */}
                   <ScenarioSelect value={selectedScenario} onValueChange={setSelectedScenario} />
-                  <span className="text-[11px] text-slate-500 hidden sm:block">{SCENARIOS[selectedScenario].desc}</span>
+                  <span className="text-[11px] text-slate-500 hidden sm:block min-h-8">{SCENARIOS[selectedScenario].desc}</span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1126,7 +1126,7 @@ export default function Dashboard() {
                   <button
                     onClick={dispatchScenario}
                     disabled={isDispatching}
-                    className="w-full lg:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-white text-black text-sm font-black tracking-wide hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-black/20 transition-all active:scale-[0.98]"
+                    className="w-full lg:w-auto h-11 inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-white text-black text-sm font-black tracking-wide hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-black/20 transition-all active:scale-[0.98]"
                   >
                     {isDispatching ? (
                       <>
