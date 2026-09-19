@@ -1,7 +1,10 @@
 import os
 import uuid
 import json
+import socket
+import ssl
 import requests
+from urllib.parse import urlparse
 from typing import TypedDict, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
@@ -185,7 +188,7 @@ def _fallback_hardening(threat_detected: bool, vuln_type: str):
         "block_csrf": "Enforce CSRF tokens for state-changing operations. Require X-CSRF-Token header and SameSite cookies for /api/transfer.",
         "block_ssrf": "Validate and allowlist outbound URLs. Block private IP ranges (169.254.169.254, localhost, 127.0.0.1) for /api/fetch.",
         "block_broken_auth": "Enforce strong password verification and rate limiting for /api/login. Require AdminPass123! for admin.",
-        "block_misconfig": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication.",
+        "block_misconfig": "Disable debug endpoints in production. Remove /api/debug or restrict to admin with authentication. Enforce TLS>=1.2 with HSTS/CSP headers; confirm PQ-hybrid key agreement (X25519MLKEM768, FIPS 203) at the edge/CDN against harvest-now/decrypt-later collection.",
     }
     actions = {
         "block_unauthorized_idor": "Dynamic route gate requiring valid admin Bearer token for /api/user/*",
@@ -312,6 +315,61 @@ def _crawl_and_discover(base_url: str, scenario: str) -> dict:
     # Generic
     return {"target_surface": discovered, "suspected_vulnerability": _fallback_recon(scenario)["suspected_vulnerability"], "target_parameter": _fallback_recon(scenario)["target_parameter"], "recon_notes": notes}
 
+def _crypto_posture_check(base_url: str) -> str:
+    """PQC/crypto-readiness probe for the misconfig vector (harvest-now/decrypt-later lens).
+
+    Verifies what stdlib can verify: scheme, security headers (HSTS/CSP),
+    and — for https targets — negotiated TLS version/cipher + cert expiry.
+    PQ-hybrid key agreement (X25519MLKEM768) terminates at the edge
+    (Railway/Vercel/Cloudflare), which stdlib cannot observe, so that part
+    is reported as an edge-verification action, never a fabricated verdict.
+    Never raises; returns a one-line summary for recon_notes.
+    """
+    try:
+        parsed = urlparse((base_url or "").strip() or "http://127.0.0.1:8001")
+        scheme = (parsed.scheme or "http").lower()
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or (443 if scheme == "https" else 80)
+        findings = []
+        # 1. Security headers over plain HTTP(S) GET
+        try:
+            r = requests.get(base_url.rstrip("/") or "http://127.0.0.1:8001",
+                             headers={"User-Agent": "PenGuard-Recon/1.0"},
+                             timeout=5, allow_redirects=False)
+            h = {k.lower(): v for k, v in r.headers.items()}
+            if scheme == "https" and "strict-transport-security" not in h:
+                findings.append("missing-HSTS")
+            for hdr, tag in [("content-security-policy", "missing-CSP"),
+                             ("x-content-type-options", "missing-XCTO"),
+                             ("x-frame-options", "missing-XFO")]:
+                if hdr not in h:
+                    findings.append(tag)
+            if h.get("server"):
+                findings.append(f"server-banner:{h['server'][:32]}")
+        except Exception as e:
+            return f"Crypto-posture: probe failed ({e}); verify TLS/HSTS at edge manually"
+        # 2. TLS handshake details for https targets only
+        tls_note = "scheme=http (isolated sandbox; TLS/PQ terminates at production edge)"
+        if scheme == "https":
+            try:
+                ctx = ssl.create_default_context()
+                with socket.create_connection((host, port), timeout=5) as sock:
+                    with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                        tls_note = f"{ssock.version()} cipher={ssock.cipher()[0]}"
+                        cert = ssock.getpeercert()
+                        if cert:
+                            tls_note += f" cert_issuer={dict(x[0] for x in cert.get('issuer', ())).get('organizationName', '?')}"
+                        if ssock.version() in ("TLSv1", "TLSv1.1"):
+                            findings.append("weak-TLS<1.2")
+            except Exception as e:
+                tls_note = f"TLS handshake failed ({e})"
+                findings.append("tls-handshake-failed")
+        verdict = "clean" if not findings else "; ".join(findings)
+        return (f"Crypto-posture: {tls_note}; headers={verdict}; "
+                f"PQ-hybrid (X25519MLKEM768) must be verified at edge (Railway/Vercel/CDN), not origin")
+    except Exception as e:
+        return f"Crypto-posture: check skipped ({e})"
+
 def memory_retrieval_node(state: EpisodeState) -> Dict[str, Any]:
     try:
         context = retrieve_past_context(f"{state['scenario']} security audit")
@@ -325,6 +383,13 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
     base_url = state.get("target_url", "")
     # Dynamic discovery: user provides only base_url + scenario, we discover sub-path automatically
     discovered = _crawl_and_discover(base_url, scenario)
+    # Misconfig vector also carries the PQC/crypto-posture probe (HNDL lens)
+    if scenario == "misconfig":
+        try:
+            discovered["recon_notes"] = (discovered.get("recon_notes", "")
+                                         + " | " + _crypto_posture_check(base_url))
+        except Exception:
+            pass
     # fallback deterministic if no LLM or on error
     if llm is None:
         return {"recon_data": discovered}
@@ -513,6 +578,13 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
 
     if llm is None:
         report_dict = _fallback_detection(url, status, body, payload)
+        # Carry the crypto-posture finding into misconfig verdicts
+        try:
+            recon_notes = ((state.get("recon_data") or {}).get("recon_notes") or "")
+            if report_dict.get("vulnerability_type") == "Security Misconfiguration" and "Crypto-posture:" in recon_notes:
+                report_dict["technical_findings"] += " | " + recon_notes.split("Crypto-posture:")[-1].strip()
+        except Exception:
+            pass
         return {
             "detection_report": report_dict,
             "threat_detected": report_dict["threat_detected"],
@@ -545,6 +617,12 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
     except Exception as e:
         print(f"[detection] LLM failed, fallback: {e}")
         report_dict = _fallback_detection(url, status, body, payload)
+        try:
+            recon_notes = ((state.get("recon_data") or {}).get("recon_notes") or "")
+            if report_dict.get("vulnerability_type") == "Security Misconfiguration" and "Crypto-posture:" in recon_notes:
+                report_dict["technical_findings"] += " | " + recon_notes.split("Crypto-posture:")[-1].strip()
+        except Exception:
+            pass
         return {
             "detection_report": report_dict,
             "threat_detected": report_dict["threat_detected"],

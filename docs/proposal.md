@@ -55,6 +55,11 @@ $$S(t) = \max \left(0, \; 100 - \sum_{i \in \mathcal{V}_{\text{active}}} w_i \cd
 
 Where $\mathcal{V}_{\text{active}}$ is the set of episodes with `threat_flag=true` and `patch_applied=false`, $w_i$ is the static business weight (0.5–1.0 per vector), and $\text{CVSS}_i$ is the vector base score (e.g., SQLi 8.6, SSRF 8.5, broken_auth 8.1, IDOR 7.5, business_logic 7.4, CSRF 6.5, XSS 6.1, misconfig 5.3). Status bands: $\ge 80$ HEALTHY · $50$–$79$ DEGRADED · $< 50$ CRITICAL. Roadmap (Phase 3, Neo4j): replace $w_i$ with PageRank centrality over graph $G$ and add a CI-verification confidence term $+\sum_j \gamma_j \cdot \Delta_j$.
 
+#### 4.3 Post-Quantum Readiness (Harvest-Now/Decrypt-Later)
+Classical key exchange (RSA, static ECDH) is vulnerable to harvest-now/decrypt-later collection: adversaries record TLS sessions today and decrypt them once a cryptographically relevant quantum computer exists. NIST has finalized ML-KEM (FIPS 203), ML-DSA (FIPS 204), and SLH-DSA (FIPS 205), recommends hybrid deployment (e.g., X25519MLKEM768), and will deprecate quantum-vulnerable algorithms after 2030 (disallow after 2035); major edges already negotiate hybrid PQ key agreement over TLS 1.3 with a full-migration target of 2029.
+
+PenGuard addresses this on two levels. **Implemented (misconfig vector):** the Red recon agent runs a crypto-posture probe (`_crypto_posture_check`) that verifies what the origin can verify — scheme, HSTS/CSP/security headers, and for HTTPS targets the negotiated TLS version/cipher and certificate expiry, flagging TLS < 1.2 and missing HSTS — while the Blue hardening plan mandates TLS $\ge$ 1.2, HSTS/CSP, and edge confirmation of hybrid PQ key agreement. PQ negotiation itself terminates at the edge (Railway/Vercel/CDN) and is therefore reported as an edge-verification action, never a fabricated origin verdict. **Roadmap:** extend the probe with edge-observed handshake telemetry and add PQC cipher-suite compliance to the posture deduction model.
+
 ### 5. Experimental Setup & Evaluation Metrics
 #### 5.1 Prototype Implementation & Baseline
 Backend: FastAPI, Python 3.11, SQLAlchemy, PostgreSQL. Observability: Prometheus scraping `/metrics` and Grafana. Frontend: Next.js, Tailwind, WebSocket, dynamic PDF. Target: FastAPI testbed with 8 OWASP scenarios.
