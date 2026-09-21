@@ -331,8 +331,3 @@ Status bands: `≥80 HEALTHY` · `50–79 DEGRADED` · `<50 CRITICAL`. Exposed v
 Operator app spec: `docs/mobile-app.md` · API contract: `docs/mobile-api.md` · Shared PRD: `docs/ui-ux-prd.md`.
 
 Features: Posture gauge, 8-vector dispatcher (with API key), live episode feed (WS + polling fallback), episode detail with PR button, PDF export, FCM critical alerts. `X-API-Key` injected via `--dart-define` or secure storage.
-
----
-
-## License
-MIT License. Built for advanced cybersecurity and autonomous agent research.# PenGuard
