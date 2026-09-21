@@ -48,7 +48,8 @@ jobs:
           EP=$(curl -s -X POST http://127.0.0.1:8000/api/episodes/run -H "Content-Type: application/json" -H "X-API-Key: test-ci-key" -d '{"scenario":"idor"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['episode_id'])")
           test -n "$EP"
           curl -s http://127.0.0.1:8000/api/episodes/$EP | grep -q "$EP"
-          curl -s http://127.0.0.1:8000/api/reports/sarif | grep -q '"version": "2.1.0"'
+          # NOTE: Starlette renders compact JSON (no spaces) — assert via python, not grep
+          curl -s http://127.0.0.1:8000/api/reports/sarif | python3 -c "import sys,json;d=json.load(sys.stdin);assert d['version']=='2.1.0';assert len(d['runs'][0]['tool']['driver']['rules'])==8"
 
   dashboard-build:
     runs-on: ubuntu-latest
