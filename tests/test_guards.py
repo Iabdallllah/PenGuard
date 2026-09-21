@@ -62,3 +62,20 @@ def test_invalid_target_rejected(client, auth_headers):
     r = client.post("/api/episodes/run", json={"scenario": "xss", "target_url": "not-a-url"},
                     headers=auth_headers)
     assert r.status_code == 400
+
+
+def test_queued_placeholder_visible_in_list(client, clean_ledger):
+    # WS and GET must agree: in-flight placeholder appears even when DB has rows
+    import api_server
+    api_server._db_add_episode({"id": "done1", "attack_type": "idor", "attack_label": "IDOR",
+                                "threat_flag": True, "patch_applied": True, "status": 200,
+                                "retest_status": 403, "score": 100.0, "remediation": "",
+                                "logs": [], "timestamp": "2026-01-01T00:00:00Z", "duration_ms": 0,
+                                "scenario": "idor", "base_url": "http://x", "target": "http://x/api",
+                                "pr_url": None, "recon_data": None, "detection_report": None,
+                                "hardening_plan": None, "response_body": "",
+                                "cvss_score": 7.5, "severity": "HIGH", "cwe": "CWE-639"})
+    clean_ledger.append({"id": "q1", "attack_type": "xss", "run_status": "QUEUED",
+                         "threat_flag": False})
+    ids = {e["id"] for e in client.get("/api/episodes").json()}
+    assert {"done1", "q1"} <= ids

@@ -581,7 +581,13 @@ export default function Dashboard() {
         }
       } else {
         const t = await res.text();
-        setDispatchError(t || `Dispatch failed (${res.status})`);
+        // Backend returns JSON {"detail": "..."} on 4xx — show the message, not raw JSON
+        try {
+          const parsed = JSON.parse(t);
+          setDispatchError(parsed.detail || `Dispatch failed (${res.status})`);
+        } catch {
+          setDispatchError(t || `Dispatch failed (${res.status})`);
+        }
       }
     } catch (err) {
       setDispatchError("Failed to reach control plane");

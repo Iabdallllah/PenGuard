@@ -412,7 +412,7 @@ def get_episodes():
             rows = db.query(DBEpisode).order_by(DBEpisode.created_at).all()
             db.close()
             if rows:
-                return [
+                out = [
                     {
                         "id": r.id, "target": r.target, "attack_type": r.attack_type, "attack_label": r.attack_label,
                         "status": r.status, "retest_status": r.retest_status, "patch_applied": r.patch_applied,
@@ -429,6 +429,16 @@ def get_episodes():
                     }
                     for r in rows
                 ]
+                # Merge in-flight placeholders (QUEUED/RUNNING live in memory + WS
+                # until completion persists them) so WS and GET never disagree.
+                try:
+                    have = {e.get("id") for e in out}
+                    for e in episodes_db:
+                        if e.get("id") not in have and e.get("run_status") in ("QUEUED", "RUNNING"):
+                            out.append(e)
+                except Exception:
+                    pass
+                return out
         except Exception as e:
             print(f"[get] DB read failed: {e}")
     return episodes_db
