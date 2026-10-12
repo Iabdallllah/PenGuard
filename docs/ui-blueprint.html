@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirsad — UI/UX Blueprint</title>
+<style>
+  :root { --ink: #111; --muted: #555; --line: #ccc; --accent: #0b5cad; --bg: #fff; --fill: #f4f6f8; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--bg);
+         max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; line-height: 1.55; font-size: 14px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  .subtitle { color: var(--muted); margin: 0 0 16px; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--fill); }
+  code { font-family: "Courier New", monospace; font-size: 12.5px; }
+  .wire { border: 2px solid var(--ink); margin: 12px 0 16px; }
+  .wire .bar { background: var(--ink); color: #fff; font-size: 12px; padding: 4px 8px; font-weight: bold; }
+  .wire .row { display: flex; gap: 0; }
+  .wire .side { flex: 0 0 26%; border-right: 2px solid var(--ink); padding: 8px; font-size: 12px; }
+  .wire .main { flex: 1; padding: 8px; font-size: 12px; }
+  .wire .box { border: 1px dashed var(--muted); padding: 6px; margin: 4px 0; }
+  .wire .cards { display: flex; gap: 4px; }
+  .wire .cards .box { flex: 1; }
+  ul.tight li { margin-bottom: 2px; }
+  a { color: var(--accent); }
+  @media print {
+    body { max-width: 100%; padding: 0; font-size: 12px; }
+    h2 { break-after: avoid; }
+    table, .wire { break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Mirsad — UI/UX Blueprint</h1>
+<p class="subtitle">Autonomous Purple Team Platform · interface-first blueprint (companion: project PRD)</p>
+<div class="meta">Version 1.0 &nbsp;|&nbsp; Status: proposed — no implementation code is authorized until every screen below is signed off &nbsp;|&nbsp; All content in English</div>
+
+<h2>1. Design principles (locked before any code)</h2>
+<ol>
+  <li>A CISO will get the answer to “are we safe, and what was fixed?” within 30 seconds of opening the dashboard.</li>
+  <li>Dispatch will require exactly two inputs: base URL and scenario. Everything else will be auto-discovered.</li>
+  <li>Status wording will be fixed vocabulary and never rephrased: PATCH VERIFIED / UNPATCHED, THREAT CONFIRMED / CLEAN, VIEW PULL REQUEST, scores as n/100.</li>
+  <li>Dark-only theme. No light mode will be in scope.</li>
+  <li>Every mutating action (dispatch, clear, approve, seal) will require an API key, and destructive ones will confirm first.</li>
+</ol>
+
+<h2>2. Screen inventory</h2>
+<table>
+  <tr><th>#</th><th>Screen / Route</th><th>Purpose</th><th>Data source</th></tr>
+  <tr><td>1</td><td>Command Center (<code>/</code>)</td><td>Posture, fleet status, dispatch, ledger, inspector, trend</td><td><code>GET /api/posture</code>, <code>/api/episodes</code>, WS <code>/ws/episodes</code></td></tr>
+  <tr><td>2</td><td>Attack Ledger (panel)</td><td>All episodes, search, filters All / Threats / Patched, Clear</td><td><code>GET /api/episodes</code></td></tr>
+  <tr><td>3</td><td>Findings (panel)</td><td>Threat-only view derived from the ledger</td><td>Client-side filter</td></tr>
+  <tr><td>4</td><td>Trust Center (<code>/trust</code>)</td><td>Retention, sub-processors, token scope, seal verification help</td><td>Static + <code>/.well-known/security.txt</code></td></tr>
+</table>
+
+<h2>3. Layout — Command Center</h2>
+<div class="wire">
+  <div class="bar">HEADER: brand · environment pill · EXPORT AUDIT TRAIL · operator</div>
+  <div class="row">
+    <div class="side"><b>SIDEBAR 288px</b> (&ge;1280px) / rail 80px (collapsible) / overlay drawer &lt;1024px<br><br>Command Center<br>Attack Ledger<br>Findings<br><br>SYSTEM HEALTH box</div>
+    <div class="main">
+      <div class="box"><b>DISPATCH BAR (one row):</b> [Target URL input + helper] [Scenario dropdown + description] [DISPATCH SCENARIO button] — all controls share one baseline, equal height 44px</div>
+      <div class="cards"><div class="box">POSTURE SCORE<br>100/100 · GRADE A</div><div class="box">COMPLETED LOOPS<br>count</div><div class="box">AUTO-PATCHES<br>success %</div><div class="box">ACTIVE SANDBOX<br>agents · queue</div></div>
+      <div class="box"><b>EXECUTION INSPECTOR:</b> vector + OWASP + MITRE · endpoint · INITIAL / PATCH / RE-TEST cards · advisory · expandable numbered logs · VIEW PULL REQUEST (only for http URLs) · Copy JSON · explainability (confidence + rationale) · cost and tokens strip</div>
+      <div class="box"><b>AUDIT HISTORY:</b> search + filters + Clear · ledger rows selectable into inspector</div>
+    </div>
+  </div>
+</div>
+
+<h2>4. Layout — Trust Center</h2>
+<div class="wire">
+  <div class="bar">TRUST CENTER (/trust): centered single column, max 768px</div>
+  <div class="main">
+    <div class="box">Header: title plus links to /.well-known/security.txt and SECURITY.md</div>
+    <div class="box">Card 1 — Data retention (zero training reuse, purge via DELETE)</div>
+    <div class="box">Card 2 — Sub-processors (Groq, Railway, Vercel, GitHub)</div>
+    <div class="box">Card 3 — Least-privilege token scope</div>
+    <div class="box">Card 4 — Tamper-evident reports (seal and verify)</div>
+    <div class="box">Footer: back to Command Center</div>
+  </div>
+</div>
+
+<h2>5. Design tokens</h2>
+<table>
+  <tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+  <tr><td>Surface</td><td><code>#06080F</code></td><td>App background</td></tr>
+  <tr><td>Panel</td><td><code>#0B0F1A</code> / <code>#0E1626</code></td><td>Cards, inputs</td></tr>
+  <tr><td>Border</td><td><code>#1E293B</code></td><td>All dividers</td></tr>
+  <tr><td>Accent</td><td><code>#06b6d4</code> (cyan)</td><td>Links, active states, primary highlights</td></tr>
+  <tr><td>Success / warn / critical</td><td>emerald / amber / rose</td><td>Severity chips: HIGH rose, MEDIUM amber, patched emerald</td></tr>
+  <tr><td>UI type</td><td>Inter (system sans)</td><td>Labels, body</td></tr>
+  <tr><td>Telemetry type</td><td>JetBrains Mono</td><td>IDs, endpoints, codes, scores, logs</td></tr>
+  <tr><td>Control height</td><td>44px</td><td>Input, dropdown trigger, dispatch button</td></tr>
+</table>
+
+<h2>6. Components and states</h2>
+<table>
+  <tr><th>Component</th><th>States</th></tr>
+  <tr><td>Scenario dropdown</td><td>8 options (label + OWASP + CVSS); combobox and listbox roles; Esc and outside-click close; never clipped by ancestors</td></tr>
+  <tr><td>Dispatch button</td><td>idle DISPATCH SCENARIO; busy DISPATCHING (spinner, disabled); accepted run selects QUEUED placeholder; duplicate dispatch shows “run in progress”; bad key shows “invalid API key”</td></tr>
+  <tr><td>Episode row</td><td>attack label + severity chip + initial-to-retest codes + patch state; selected row loads inspector</td></tr>
+  <tr><td>Inspector cards</td><td>INITIAL (status code), PATCH (applied or failed), RE-TEST (code or dash); QUEUED shown plainly while a background run is in flight</td></tr>
+  <tr><td>PR button</td><td>visible only when pr_url starts with http; otherwise reason text</td></tr>
+  <tr><td>Clear button</td><td>confirm dialog; empties ledger via DELETE; empty state offers dispatch focus</td></tr>
+  <tr><td>Export button</td><td>downloads per-operation PDF generated from the live ledger</td></tr>
+</table>
+
+<h2>7. Responsive rules</h2>
+<ul class="tight">
+  <li>&ge;1280px: full sidebar 288px, collapsible to 80px rail with tooltips.</li>
+  <li>&lt;1024px: sidebar becomes overlay drawer (max 85vw); menu button in header; overlay tap, X, and item tap all close it.</li>
+  <li>Metrics grid: 4 columns, then 2, then 1 as the viewport shrinks.</li>
+  <li>No <code>overflow-hidden</code> ancestor above dropdowns or popovers.</li>
+</ul>
+
+<h2>8. Accessibility and robustness</h2>
+<ul class="tight">
+  <li>All icon buttons will carry <code>aria-label</code>.</li>
+  <li>No clock values in the server-render path (hydration); client clocks will update via effect.</li>
+  <li>WebSocket-first updates with polling fallback; offline will show a stale banner, never fake data.</li>
+  <li>401 will surface a human message, never a blank state.</li>
+</ul>
+
+<h2>9. UI acceptance criteria (sign-off gate — implementation starts only after all pass on clickable mockups)</h2>
+<ol>
+  <li>A new user will dispatch the first scenario in under 60 seconds with only base URL plus scenario.</li>
+  <li>A ledger row click will open the inspector with the correct OWASP tag and initial-to-retest codes for all 8 vectors.</li>
+  <li>The PR button will be visible only for real http URLs; the skipped state will show reason text.</li>
+  <li>The mobile drawer will open and close via menu, X, overlay tap, and item tap.</li>
+  <li>Dispatch bar controls will share one baseline at desktop and stack without overlap on mobile.</li>
+  <li>Zero console errors and no hydration warnings.</li>
+</ol>
+
+</body>
+</html>
