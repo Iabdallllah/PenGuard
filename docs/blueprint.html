@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PenGuard — UI/UX Blueprint and Project PRD</title>
+<style>
+  :root { --ink: #111; --muted: #555; --line: #ccc; --accent: #0b5cad; --bg: #fff; --fill: #f4f6f8; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--bg);
+         max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; line-height: 1.55; font-size: 14px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  p, li { color: var(--ink); }
+  .subtitle { color: var(--muted); margin: 0 0 16px; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--fill); }
+  code, pre { font-family: "Courier New", monospace; font-size: 12.5px; }
+  pre { background: var(--fill); border: 1px solid var(--line); padding: 12px; overflow-x: auto; }
+  .wire { border: 2px solid var(--ink); margin: 12px 0 16px; }
+  .wire .bar { background: var(--ink); color: #fff; font-size: 12px; padding: 4px 8px; font-weight: bold; }
+  .wire .row { display: flex; gap: 0; }
+  .wire .side { flex: 0 0 26%; border-right: 2px solid var(--ink); padding: 8px; font-size: 12px; }
+  .wire .main { flex: 1; padding: 8px; font-size: 12px; }
+  .wire .box { border: 1px dashed var(--muted); padding: 6px; margin: 4px 0; }
+  .wire .cards { display: flex; gap: 4px; }
+  .wire .cards .box { flex: 1; }
+  ul.tight li { margin-bottom: 2px; }
+  .tag { display: inline-block; border: 1px solid var(--muted); border-radius: 4px;
+         padding: 0 6px; font-size: 12px; color: var(--muted); }
+  a { color: var(--accent); }
+  @media print {
+    body { max-width: 100%; padding: 0; font-size: 12px; }
+    h2 { break-after: avoid; }
+    table, pre, .wire { break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+    .noprint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1>PenGuard — Autonomous Purple Team Platform</h1>
+<p class="subtitle">UI/UX Blueprint (Part 1) and Updated Project PRD (Part 2)</p>
+<div class="meta">Version 2.4 &nbsp;|&nbsp; Status: UI-first blueprint for committee approval — no implementation code is authorized until the UI in Part 1 is fully signed off &nbsp;|&nbsp; All content in English</div>
+
+<h2>Contents</h2>
+<ol>
+  <li><a href="#p1">Part 1 — UI/UX Blueprint</a>: principles, screens, layout, tokens, components, states, responsive, accessibility, acceptance</li>
+  <li><a href="#p2">Part 2 — Project PRD (updated)</a>: problem, solution, scope, features, stack, risks, KPIs, build order, cost</li>
+</ol>
+
+<!-- ============================ PART 1 ============================ -->
+<h2 id="p1">Part 1 — UI/UX Blueprint</h2>
+
+<h3>1.1 Design principles (locked before any code)</h3>
+<ol>
+  <li>A CISO gets the answer to “are we safe, and what was fixed?” within 30 seconds of opening the dashboard.</li>
+  <li>Dispatch requires exactly two inputs: base URL and scenario. Everything else is auto-discovered.</li>
+  <li>Status wording is fixed vocabulary and never rephrased: PATCH VERIFIED / UNPATCHED, THREAT CONFIRMED / CLEAN, VIEW PULL REQUEST, scores as n/100.</li>
+  <li>Dark-only theme. No light mode in scope.</li>
+  <li>Every mutating action (dispatch, clear, approve, seal) requires an API key and confirms destructive ones.</li>
+</ol>
+
+<h3>1.2 Screen inventory</h3>
+<table>
+  <tr><th>#</th><th>Screen / Route</th><th>Purpose</th><th>Data source</th></tr>
+  <tr><td>1</td><td>Command Center (<code>/</code>)</td><td>Posture, fleet status, dispatch, ledger, inspector, trend</td><td><code>GET /api/posture</code>, <code>/api/episodes</code>, WS <code>/ws/episodes</code></td></tr>
+  <tr><td>2</td><td>Attack Ledger (panel)</td><td>All episodes, search, filters All / Threats / Patched, Clear</td><td><code>GET /api/episodes</code></td></tr>
+  <tr><td>3</td><td>Findings (panel)</td><td>Threat-only view derived from the ledger</td><td>Client-side filter</td></tr>
+  <tr><td>4</td><td>Trust Center (<code>/trust</code>)</td><td>Retention, sub-processors, token scope, seal verification help</td><td>Static + <code>/.well-known/security.txt</code></td></tr>
+</table>
+
+<h3>1.3 Layout specification — Command Center</h3>
+<div class="wire">
+  <div class="bar">HEADER: brand · environment pill · EXPORT AUDIT TRAIL · operator</div>
+  <div class="row">
+    <div class="side"><b>SIDEBAR 288px</b> (&ge;1280px) / rail 80px (collapsible) / overlay drawer &lt;1024px<br><br>Command Center<br>Attack Ledger<br>Findings<br><br>SYSTEM HEALTH box</div>
+    <div class="main">
+      <div class="box"><b>DISPATCH BAR (one row):</b> [Target URL input + helper] [Scenario dropdown + description] [DISPATCH SCENARIO button] — all controls share one baseline, equal height 44px</div>
+      <div class="cards"><div class="box">POSTURE SCORE<br>100/100 · GRADE A</div><div class="box">COMPLETED LOOPS<br>count</div><div class="box">AUTO-PATCHES<br>success %</div><div class="box">ACTIVE SANDBOX<br>agents · queue</div></div>
+      <div class="box"><b>EXECUTION INSPECTOR:</b> vector + OWASP + MITRE · endpoint · INITIAL / PATCH / RE-TEST cards · advisory · expandable numbered logs · VIEW PULL REQUEST (only for http URLs) · Copy JSON · explainability (confidence + rationale) · cost/tokens strip</div>
+      <div class="box"><b>AUDIT &amp; HARDENING HISTORY:</b> search + filters + Clear · ledger rows selectable into inspector</div>
+    </div>
+  </div>
+</div>
+
+<h3>1.4 Layout specification — Trust Center</h3>
+<div class="wire">
+  <div class="bar">TRUST CENTER (/trust): centered single column, max 768px</div>
+  <div class="main">
+    <div class="box">Header: title + links to /.well-known/security.txt and SECURITY.md</div>
+    <div class="box">Card 1 — Data retention (zero training reuse, purge via DELETE)</div>
+    <div class="box">Card 2 — Sub-processors (Groq, Railway, Vercel, GitHub)</div>
+    <div class="box">Card 3 — Least-privilege token scope</div>
+    <div class="box">Card 4 — Tamper-evident reports (seal / verify)</div>
+    <div class="box">Footer: back to Command Center</div>
+  </div>
+</div>
+
+<h3>1.5 Design tokens</h3>
+<table>
+  <tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+  <tr><td>Surface</td><td><code>#06080F</code></td><td>App background</td></tr>
+  <tr><td>Panel</td><td><code>#0B0F1A</code> / <code>#0E1626</code></td><td>Cards, inputs</td></tr>
+  <tr><td>Border</td><td><code>#1E293B</code></td><td>All dividers</td></tr>
+  <tr><td>Accent</td><td><code>#06b6d4</code> (cyan)</td><td>Links, active states, primary highlights</td></tr>
+  <tr><td>Success / warn / critical</td><td>emerald / amber / rose</td><td>Severity chips: HIGH rose, MEDIUM amber, patched emerald</td></tr>
+  <tr><td>UI type</td><td>Inter (system sans)</td><td>Labels, body</td></tr>
+  <tr><td>Telemetry type</td><td>JetBrains Mono</td><td>IDs, endpoints, codes, scores, logs</td></tr>
+  <tr><td>Control height</td><td>44px</td><td>Input, dropdown trigger, dispatch button</td></tr>
+</table>
+
+<h3>1.6 Components and states</h3>
+<table>
+  <tr><th>Component</th><th>States</th></tr>
+  <tr><td>Scenario dropdown</td><td>8 options (label + OWASP + CVSS); combobox/listbox roles; Esc and outside-click close; never clipped by ancestors</td></tr>
+  <tr><td>Dispatch button</td><td>idle DISPATCH SCENARIO; busy DISPATCHING (spinner, disabled); 202 accepted selects QUEUED placeholder; 409 shows “run in progress” message; 401 shows “invalid API key”</td></tr>
+  <tr><td>Episode row</td><td>attack label + severity chip + initial-to-retest codes + patch state; selected row loads inspector</td></tr>
+  <tr><td>Inspector cards</td><td>INITIAL (status code), PATCH (applied/failed), RE-TEST (code or dash); QUEUED shown plainly while a background run is in flight</td></tr>
+  <tr><td>PR button</td><td>visible only when pr_url starts with http; otherwise reason text</td></tr>
+  <tr><td>Clear button</td><td>confirm dialog; empties ledger via DELETE; empty state offers dispatch focus</td></tr>
+  <tr><td>Export button</td><td>downloads per-operation PDF generated from the live ledger</td></tr>
+</table>
+
+<h3>1.7 Responsive rules</h3>
+<ul class="tight">
+  <li>&ge;1280px: full sidebar 288px, collapsible to 80px rail with tooltips.</li>
+  <li>&lt;1024px: sidebar becomes overlay drawer (max 85vw); menu button in header; overlay tap, X, and item tap all close it.</li>
+  <li>Metrics grid: 4 columns &rarr; 2 &rarr; 1 as viewport shrinks.</li>
+  <li>No <code>overflow-hidden</code> ancestor above dropdowns or popovers.</li>
+</ul>
+
+<h3>1.8 Accessibility and robustness</h3>
+<ul class="tight">
+  <li>All icon buttons carry <code>aria-label</code>.</li>
+  <li>No clock values in the server-render path (hydration); client clocks update via effect.</li>
+  <li>WebSocket-first updates with polling fallback; offline shows stale banner, never fake data.</li>
+  <li>401 surfaces a human message, never a blank state.</li>
+</ul>
+
+<h3>1.9 UI acceptance criteria (sign-off gate — code starts only after all pass on clickable mockups)</h3>
+<ol>
+  <li>A new user dispatches the first scenario in under 60 seconds with only base URL + scenario.</li>
+  <li>Ledger row click opens the inspector with correct OWASP tag and initial-to-retest codes for all 8 vectors.</li>
+  <li>PR button visible only for real http URLs; skipped state shows reason text.</li>
+  <li>Mobile drawer opens and closes via menu, X, overlay tap, and item tap.</li>
+  <li>Dispatch bar controls share one baseline at desktop and stack without overlap on mobile.</li>
+  <li>Zero console errors; no hydration warnings.</li>
+</ol>
+
+<!-- ============================ PART 2 ============================ -->
+<h2 id="p2">Part 2 — Project PRD (updated)</h2>
+
+<h3>2.1 One-liner</h3>
+<p>A B2B SaaS platform where autonomous Red Team and AI Detection Engine agents continuously attack and defend a target web application, auto-discover its attack surface from a single base URL, learn from each encounter, auto-open GitHub Pull Requests with AST-safe patches, verify them by sandbox re-test with a posted verdict comment, and produce a real-time Security Posture Score, live telemetry, and a dynamic per-operation PDF remediation roadmap.</p>
+
+<h3>2.2 The problem</h3>
+<ul>
+  <li>Web application penetration tests are annual point-in-time snapshots, leaving months of exposure windows.</li>
+  <li>Red teams are expensive, scarce, and time-limited.</li>
+  <li>Blue teams lack realistic, continuous adversary emulation to validate web app defenses.</li>
+  <li>No quantitative metric exists for defense readiness that executives can track.</li>
+  <li>Compliance (SOC 2, ISO 27001) requires manual evidence gathering.</li>
+  <li>SAST/DAST scanners report without exploit validation and flood developers with false positives.</li>
+  <li>Naive AI patching breaks shared code (for example deleting shared Pydantic models) and causes regressions.</li>
+  <li>Static PDF reports and ephemeral local history cannot serve as audit evidence.</li>
+</ul>
+
+<h3>2.3 The solution: continuous purple teaming loop</h3>
+<pre>Base URL + Scenario --&gt; Auto-Recon --&gt; Exploit --&gt; Detection --&gt;
+AST-safe Patch PR --&gt; Sandbox Re-test (4xx) --&gt; PR Verdict Comment --&gt;
+Posture Score + Dynamic PDF + SARIF</pre>
+<p>Key innovation: adversarial learning with a safe auto-remediation loop. The Red Agent probes the base URL to discover real endpoints (route probing plus HTML form and input crawling), then exploits. The AI Detection Engine analyzes logs and requests, decides the response alone, generates a minimal patch preserving shared models, opens an isolated <code>patch/&lt;vector&gt;-xxxxxx</code> branch and Pull Request via the GitHub REST API (no git clone on the server), and re-verifies by sandbox re-test with the verdict posted on the PR. Past encounters are reused via RAG context, enabling measurable improvement.</p>
+
+<h3>2.4 Core features (updated to implemented state)</h3>
+<table>
+  <tr><th>Feature</th><th>Description</th><th>Status</th></tr>
+  <tr><td>Agent orchestration</td><td>LangGraph state machine (retrieve, recon, exploit, detect, harden, retest, score) with timeouts and deterministic fallback when the LLM key is absent</td><td>Implemented</td></tr>
+  <tr><td>Dynamic recon</td><td>Only base URL plus scenario required; sub-path and params auto-discovered via probing plus HTML crawl</td><td>Implemented</td></tr>
+  <tr><td>Red Team (2 agents)</td><td>Recon plus exploit covering 8 OWASP vectors: IDOR, SQLi, Business Logic, XSS, CSRF, SSRF, Broken Auth, Misconfiguration</td><td>Implemented</td></tr>
+  <tr><td>AI Detection Engine (2 agents)</td><td>Detection plus hardening with WAF rules, input filtering (400) and output encoding; fully autonomous</td><td>Implemented</td></tr>
+  <tr><td>Async dispatch</td><td>202 Accepted with background execution, QUEUED placeholder, single-flight 409 guard, WS and polling completion</td><td>Implemented</td></tr>
+  <tr><td>Self-reflection loop</td><td>Failed re-tests retry hardening with recorded feedback, maximum 3 attempts, then scored honestly</td><td>Implemented</td></tr>
+  <tr><td>Git-native patching</td><td>PyGithub flow with VIEW PULL REQUEST button in UI (real PRs for XSS; others report null honestly)</td><td>Implemented</td></tr>
+  <tr><td>PR verdict comment</td><td>Sandbox re-test outcome posted on the real PR automatically</td><td>Implemented</td></tr>
+  <tr><td>Operator approve</td><td>Official GitHub APPROVE review from the episode, with PR-ownership check</td><td>Implemented</td></tr>
+  <tr><td>Crypto posture probe</td><td>TLS version, HSTS and headers, certificate checks inside the misconfiguration vector; PQ-hybrid verified at edge</td><td>Implemented</td></tr>
+  <tr><td>Posture scoring</td><td>Continuous S(t) 0-100 with grades, trend, per-node latency, token and cost tracking when the live LLM runs</td><td>Implemented</td></tr>
+  <tr><td>Explainability</td><td>Every episode carries confidence, its source (model or heuristic fallback), rule, and rationale</td><td>Implemented</td></tr>
+  <tr><td>Persistent ledger</td><td>PostgreSQL via SQLAlchemy with SQLite and JSON fallback; DELETE plus Clear for demo reset</td><td>Implemented</td></tr>
+  <tr><td>Compliance exports</td><td>Dynamic per-operation PDF plus SARIF 2.1.0 with MITRE ATT&amp;CK taxonomies; SHA-256 seal and public verify endpoint</td><td>Implemented</td></tr>
+  <tr><td>Trust surface</td><td>RFC 9116 security.txt, Trust Center page, secrets policy, tamper-evident reports</td><td>Implemented</td></tr>
+  <tr><td>Dashboard</td><td>Next.js live view: dispatch, posture, 8-vector ledger, inspector with logs and PR link, search and filters</td><td>Implemented</td></tr>
+  <tr><td>Real-time</td><td>WebSocket /ws/episodes with polling fallback</td><td>Implemented</td></tr>
+  <tr><td>Monitoring</td><td>Prometheus metrics endpoints, config, Grafana dashboard (local stack)</td><td>Implemented</td></tr>
+  <tr><td>CI/CD</td><td>GitHub Actions: lint, pytest suite, live smoke, dashboard build</td><td>Implemented</td></tr>
+  <tr><td>Knowledge graph + RAG</td><td>ChromaDB transcripts now; Neo4j with STIX 2.1 hybrid Graph-RAG for chains and blast radius</td><td>Planned (Phase 3)</td></tr>
+  <tr><td>Mobile app</td><td>Flutter client against the documented REST and WebSocket contract</td><td>Spec only</td></tr>
+</table>
+
+<h3>2.5 Attack vectors (shipped values)</h3>
+<table>
+  <tr><th>Vector</th><th>OWASP</th><th>MITRE ATT&amp;CK</th><th>CVSS</th><th>Initial to secured</th></tr>
+  <tr><td>IDOR</td><td>A01:2021</td><td>T1078 Valid Accounts</td><td>7.5</td><td>200 to 403</td></tr>
+  <tr><td>SQL Injection</td><td>A03:2021</td><td>T1190 Exploit Public-Facing Application</td><td>8.6</td><td>200 to 403</td></tr>
+  <tr><td>Business Logic Abuse</td><td>A04:2021</td><td>T1190 Exploit Public-Facing Application</td><td>7.4</td><td>200 to 400</td></tr>
+  <tr><td>XSS</td><td>A03:2021</td><td>T1059.007 JavaScript</td><td>6.1</td><td>200 to 400</td></tr>
+  <tr><td>CSRF</td><td>A01:2021</td><td>T1185 Man in the Browser</td><td>6.5</td><td>200 to 403</td></tr>
+  <tr><td>SSRF</td><td>A10:2021</td><td>T1190 Exploit Public-Facing Application</td><td>8.5</td><td>200 to 403</td></tr>
+  <tr><td>Broken Authentication</td><td>A07:2021</td><td>T1078 Valid Accounts</td><td>8.1</td><td>200 to 401</td></tr>
+  <tr><td>Misconfiguration</td><td>A05:2021</td><td>T1082 System Information Discovery</td><td>5.3</td><td>200 to 403</td></tr>
+</table>
+
+<h3>2.6 Technical stack</h3>
+<table>
+  <tr><th>Layer</th><th>Technologies</th></tr>
+  <tr><td>Agent orchestration</td><td>LangGraph, LangChain, Pydantic v2 structured outputs</td></tr>
+  <tr><td>LLM inference</td><td>Groq (openai/gpt-oss-20b) free tier, deterministic fallback when key absent</td></tr>
+  <tr><td>Embeddings and RAG</td><td>ChromaDB persistent; pgvector and Neo4j planned</td></tr>
+  <tr><td>Knowledge graph</td><td>Neo4j Community or Aura with OWASP and MITRE STIX 2.1 ontology (planned Phase 3)</td></tr>
+  <tr><td>Sandbox</td><td>Docker per-episode with staleness-aware rebuild; isolated fallback with reset endpoint</td></tr>
+  <tr><td>Backend API</td><td>FastAPI, Python 3.11, SQLAlchemy, PyGithub, Prometheus instrumentation, WebSockets</td></tr>
+  <tr><td>Database</td><td>PostgreSQL (Railway) with SQLite and JSON fallback</td></tr>
+  <tr><td>Web frontend</td><td>Next.js 16.3, React 19.2, TypeScript 5, Tailwind 4, WebSocket streaming, dynamic PDF export</td></tr>
+  <tr><td>Mobile frontend</td><td>Flutter, specification only, documented REST and WebSocket contract</td></tr>
+  <tr><td>Monitoring</td><td>Prometheus, Grafana (local stack)</td></tr>
+  <tr><td>Deploy</td><td>Railway (API plus target, single-port container), Vercel (dashboard), GitHub Actions</td></tr>
+  <tr><td>Docs</td><td>architecture, references, mobile API, proposal, screenshots, this blueprint</td></tr>
+</table>
+
+<h3>2.7 Why this project stands out</h3>
+<ul>
+  <li>Adversarial learning loop: Red and Blue co-evolution, not static scans.</li>
+  <li>Zero-input recon: only the base URL is entered; sub-paths are auto-discovered.</li>
+  <li>Git-native auto-PR: real patch branches and PRs, not in-memory edits.</li>
+  <li>Regression-free patching: AST-aware, shared models preserved, strict input rejection.</li>
+  <li>Quantitative posture: executive metric plus live observability.</li>
+  <li>Fully autonomous Blue side: no human in the detect, patch, and verify loop.</li>
+  <li>Safe sandbox: isolated container with per-episode reset.</li>
+  <li>Standards-native: OWASP Top 10 plus MITRE ATT&amp;CK mapping, SARIF export, tamper-evident seals.</li>
+  <li>Live compliance: dynamic per-run PDF, persistent audit ledger, green CI.</li>
+</ul>
+
+<h3>2.8 Customers and business model</h3>
+<p>CISO, VP Security, AppSec Lead, Audit and Compliance. Mid-market to Enterprise. Tiered SaaS per application plus Enterprise annual. Go-to-market via AppSec community, cyber-insurance partnerships, and CI/CD marketplace.</p>
+
+<h3>2.9 Key risks and mitigations</h3>
+<table>
+  <tr><th>Risk</th><th>Mitigation</th></tr>
+  <tr><td>Simulation safety</td><td>Isolated Docker, per-episode reset, no egress, full audit logging.</td></tr>
+  <tr><td>Multi-agent complexity</td><td>One scenario validated end-to-end before expanding to eight.</td></tr>
+  <tr><td>Attack and defense quality</td><td>OWASP and MITRE grounding, few-shot prompts, continuous evaluation, deterministic fallback.</td></tr>
+  <tr><td>Patch regression</td><td>AST-aware replacement preserving shared models; CI plus re-test must pass.</td></tr>
+  <tr><td>Ephemeral storage</td><td>PostgreSQL primary with JSON and SQLite fallback via DATABASE_URL.</td></tr>
+  <tr><td>Verification flakiness</td><td>Sandbox re-test directly; verdict comment records the outcome honestly including failures.</td></tr>
+  <tr><td>Diminishing returns</td><td>Plateau reported honestly after the first 5 to 10 episodes.</td></tr>
+</table>
+
+<h3>2.10 Success metrics</h3>
+<ul>
+  <li>Detection rate: at least 85 percent on known scenarios (8 vectors).</li>
+  <li>Patch acceptance: PRs passing CI and re-test without manual fix.</li>
+  <li>MTTR: discovery to verified PR, in minutes of wall-clock time.</li>
+  <li>Regression incidence: near zero (no NameError or build failure).</li>
+  <li>Episode duration: at most 30 minutes (seconds in demo: 200 to 403).</li>
+  <li>Demo: all 8 web scenarios with measurable posture gain across the first 5 to 10 episodes.</li>
+</ul>
+
+<h3>2.11 Build order</h3>
+<ol>
+  <li>One scenario end-to-end (1 Red plus 1 Blue) with auto-recon.</li>
+  <li>Second Red plus second Blue on the same scenario (detect and harden split).</li>
+  <li>Expand to 8 scenarios with uniform WAF and re-test pattern.</li>
+  <li>Git-native PR, verdict comment, dynamic PDF, WebSocket.</li>
+  <li>Postgres persistence, Prometheus and Grafana, CI, mobile spec, trust surface.</li>
+  <li>Planned: Neo4j hybrid Graph-RAG, Flutter client.</li>
+</ol>
+
+<h3>2.12 Cost profile</h3>
+<p>Free-first: Groq free tier, Railway trial or free plus Vercel Hobby, free Postgres, open-source ChromaDB, Docker, and Next.js. Compute, hosting, and development time are real costs; licensing is free.</p>
+
+</body>
+</html>
