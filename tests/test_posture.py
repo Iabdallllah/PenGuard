@@ -1,10 +1,17 @@
-"""Posture equation S(t) = max(0, 100 - sum(w*CVSS)) over unpatched threats."""
+"""Posture equation S(t) = max(0, 100 - sum(w*CVSS)) over unique unpatched findings."""
 from api_server import compute_posture
 
 
-def _ep(key, threat=True, patched=False, score=100.0):
-    return {"id": key, "attack_type": key, "threat_flag": threat,
-            "patch_applied": patched, "score": score, "timestamp": "2026-01-01T00:00:00Z"}
+def _ep(key, threat=True, patched=False, score=100.0, status=200, retest_status=None):
+    return {"id": key, "attack_type": key, "scenario": key,
+            "base_url": "http://127.0.0.1:8001",
+            "target": f"http://127.0.0.1:8001{api_endpoint_for(key)}",
+            "threat_flag": threat, "patch_applied": patched, "status": status,
+            "retest_status": retest_status, "score": score, "timestamp": "2026-01-01T00:00:00Z"}
+
+
+def api_endpoint_for(key: str) -> str:
+    return f"/api/{key.replace('_', '')}"
 
 
 def test_empty_ledger_healthy():
@@ -22,7 +29,7 @@ def test_single_unpatched_deducts_exact():
 
 
 def test_patched_not_deducted():
-    p = compute_posture([_ep("sql_injection", patched=True)])
+    p = compute_posture([_ep("sql_injection", patched=True, retest_status=403)])
     assert p["score"] == 100.0
     assert p["mitigated_vulnerabilities"] == 1
     assert p["active_vulnerabilities"] == 0
@@ -36,6 +43,8 @@ def test_bands():
                              "business_logic", "csrf", "xss", "misconfig")]
     p2 = compute_posture(all8)
     assert p2["status"] == "DEGRADED"  # max single-set deduction is 47.92
-    p3 = compute_posture(all8 + all8)  # repeated unpatched findings drive CRITICAL
-    assert p3["status"] == "CRITICAL"
-    assert p3["score"] >= 0
+    # Repeated unpatched scans of the same unique finding must not inflate posture.
+    p3 = compute_posture(all8 + all8)
+    assert p3["score"] == p2["score"]
+    assert p3["status"] == p2["status"]
+    assert p3["active_vulnerabilities"] == p2["active_vulnerabilities"]

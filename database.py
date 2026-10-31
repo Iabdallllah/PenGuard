@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, Text, DateTime, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import text as sql_text
 
 # Railway: DATABASE_URL (postgres://...), Neon/Supabase: same, Local: fallback to sqlite
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -66,7 +67,54 @@ class Episode(Base):
     detection_report = Column(JSON, nullable=True)
     hardening_plan = Column(JSON, nullable=True)
     response_body = Column(Text, nullable=True)
+    # Wave 0/1 additive fields: explicit outcome, finding identity, and
+    # redacted evidence. Old rows remain valid and are derived at read time.
+    outcome = Column(String, nullable=True, index=True)
+    finding_key = Column(String, nullable=True, index=True)
+    http_method = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+    evidence = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Finding(Base):
+    """Current state of one unique weakness (episodes remain immutable attempts)."""
+
+    __tablename__ = "findings"
+
+    id = Column(String, primary_key=True)
+    finding_key = Column(String, unique=True, index=True, nullable=False)
+    target = Column(Text, index=True)
+    target_identity = Column(String, index=True)
+    scenario = Column(String, index=True)
+    endpoint = Column(Text)
+    path = Column(Text)
+    parameter = Column(String)
+    method = Column(String)
+    title = Column(String)
+    outcome = Column(String, index=True)
+    state = Column(String, index=True)
+    active = Column(Boolean, default=True, index=True)
+    severity = Column(String, nullable=True)
+    cvss = Column(Float, nullable=True)
+    cwe = Column(String, nullable=True)
+    mitre_id = Column(String, nullable=True)
+    mitre_technique = Column(String, nullable=True)
+    mitre_tactic = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+    evidence = Column(JSON, nullable=True)
+    remediation = Column(Text, nullable=True)
+    first_seen = Column(String, nullable=True)
+    last_seen = Column(String, nullable=True)
+    attempts = Column(Integer, default=1)
+    inconclusive_attempts = Column(Integer, default=0)
+    latest_episode_id = Column(String, nullable=True)
+    reopened = Column(Boolean, default=False)
+    reopen_count = Column(Integer, default=0)
+    reopened_at = Column(String, nullable=True)
+    mitigated_at = Column(String, nullable=True)
+    resolved_at = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PostureMetric(Base):
@@ -91,20 +139,36 @@ class SealedReport(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+def _existing_columns(conn, table: str):
+    """Return existing columns for SQLite/Postgres without dialect surprises."""
+    url = str(engine.url) if engine is not None else ""
+    try:
+        if url.startswith("sqlite"):
+            rows = conn.execute(sql_text(f"PRAGMA table_info({table})"))
+            return {row[1] for row in rows}
+        rows = conn.execute(
+            sql_text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :table_name AND table_schema = current_schema()"
+            ),
+            {"table_name": table},
+        )
+        return {row[0] for row in rows}
+    except Exception:
+        return set()
+
+
 def init_db():
     if not _db_available or engine is None:
         print("[database] init skipped - no engine")
         return False
     try:
         Base.metadata.create_all(bind=engine)
-        # Light migration: add new columns to existing tables without data loss
+        # Additive migration: extend existing tables without dropping data.
+        # The new findings table is created by create_all above.
         try:
-            from sqlalchemy import text
             with engine.begin() as conn:
-                existing = {row[1] for row in conn.execute(text("PRAGMA table_info(episodes)"))} if "sqlite" in str(engine.url) else set()
-                if not existing and "sqlite" not in str(engine.url):
-                    cols = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='episodes'"))
-                    existing = {row[0] for row in cols}
+                existing = _existing_columns(conn, "episodes")
                 for col, ddl in [
                     ("cvss_score", "FLOAT"),
                     ("severity", "VARCHAR"),
@@ -112,9 +176,14 @@ def init_db():
                     ("mitre_id", "VARCHAR"),
                     ("mitre_technique", "VARCHAR"),
                     ("mitre_tactic", "VARCHAR"),
+                    ("outcome", "VARCHAR"),
+                    ("finding_key", "VARCHAR"),
+                    ("http_method", "VARCHAR"),
+                    ("confidence", "FLOAT"),
+                    ("evidence", "JSON"),
                 ]:
                     if col not in existing:
-                        conn.execute(text(f"ALTER TABLE episodes ADD COLUMN {col} {ddl}"))
+                        conn.execute(sql_text(f"ALTER TABLE episodes ADD COLUMN {col} {ddl}"))
                         print(f"[database] migrated: added episodes.{col}")
         except Exception as me:
             print(f"[database] migration skipped: {me}")

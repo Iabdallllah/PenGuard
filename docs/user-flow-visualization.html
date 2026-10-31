@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirsad — Simple User Flow</title>
+<style>
+body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:0 auto;padding:24px;font-size:13px;line-height:1.4}
+h1{font-size:20px;margin:0 0 4px}
+.subtitle{color:#555;font-size:12px;margin-bottom:14px}
+.note{background:#fff8e1;border-left:3px solid #f59e0b;padding:8px 10px;font-size:11.5px;color:#7c3a08;margin-bottom:14px}
+.card{border:1px solid #ccc;border-radius:6px;padding:10px;margin:6px 0}
+.card b{font-size:14px}
+.arrow{text-align:center;font-size:16px;color:#777;margin:2px 0}
+.tag{display:inline-block;border:1px solid #ccc;border-radius:3px;padding:1px 4px;font-size:10.5px;background:#f4f6f8;margin:2px 2px 0 0}
+@media print{body{max-width:100%;padding:0;font-size:11.5px}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<h1>Mirsad — User Flow (simplified)</h1>
+<p class="subtitle">From PRD sections 3 / 4 / 11 — from-zero plan — English only</p>
+
+<div class="note"><b>Note:</b> PRD has no login/signup/activation step; Figma diagram requires it. Added below as Phase 0 (before build). Access gate remains API-key selective.</div>
+
+<div class="card"><b>0. Log in</b> — Start -> Log in <span class="tag">Retry on Invalid credentials / Failure</span> -> Access <span class="tag">Sign up -> Activation (optional)</span></div>
+<div class="arrow">&#8595;</div>
+
+<div class="card"><b>1. Open</b> — Command Center (Phase 4)</div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>2. Input</b> — Base URL + Scenario (8 vectors) <span class="tag">Zero-input recon</span></div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>3. Dispatch</b> — 202 + QUEUED placeholder <span class="tag">Single-flight 409 guard</span></div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>4. Execute</b> — Auto-Recon -> Exploit -> Detect -> Patch PR -> Sandbox Re-test <span class="tag">Self-reflection: max 3 retries</span></div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>5. Monitor</b> — Ledger + Inspector (WS/polling) <span class="tag">Initial / Patch / Re-test</span></div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>6. Review</b> — Severity chip + PR link + explainability + copy JSON</div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>7. Act</b> — Approve PR (official review) / Clear / Delete</div>
+<div class="arrow">&#8595;</div>
+<div class="card"><b>8. Export / Trust</b> — PDF + SARIF seal/verify + /trust <span class="tag">Compliance (Phase 4)</span></div>
+
+<p style="font-size:11px;color:#555;margin-top:12px">Source: <code>docs/project-prd.html</code> loop + <code>docs/ui-blueprint.html</code> screens. Build order: 1 (scenario) -> 2 (red/blue) -> 3 (async/PR) -> 4 (ledger/export/CI) -> 5 (planned: mobile/graph).</p>
+
+</body>
+</html>

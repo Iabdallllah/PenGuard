@@ -44,7 +44,11 @@ def test_sarif_threat_only(client, clean_ledger):
     api_server._db_add_episode(_record("s1", "sql_injection", "SQL Injection", True, True, 200, 403))
     api_server._db_add_episode(_record("s2", "xss", "XSS", False, False, 400, None))
     results = client.get("/api/reports/sarif").json()["runs"][0]["results"]
-    by_ep = {x["properties"]["episode_id"]: x for x in results}
+    by_ep = {x["locations"][0]["properties"]["episode_id"]: x for x in results}
     assert "s1" in by_ep and "s2" not in by_ep
     assert by_ep["s1"]["ruleId"] == "PENGUARD-SQL_INJECTION"
     assert by_ep["s1"]["level"] == "error"  # HIGH severity
+    # OASIS-compliant dedupe fingerprints are embedded (legacy rows use the
+    # scenario+target+CWE fallback because they carry no finding_key).
+    assert len(by_ep["s1"]["partialFingerprints"]["penguardFinding/v1"]) == 64
+    assert by_ep["s1"]["partialFingerprints"] == by_ep["s1"]["fingerprints"]

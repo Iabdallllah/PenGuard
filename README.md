@@ -28,7 +28,7 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
                          ▼
               ┌──────────────────────┐      ┌─────────────────────┐
               │  Red Agent (Recon)   │─────►│   Blue Agent (Fix)  │
-              │  Auto-Crawl + Exploit│      │  AST-safe Patch     │
+              │  Auto-Crawl + Exploit│      │  String-Based Patch    │
               └──────────┬───────────┘      └──────────┬──────────┘
                          │                             │ create_git_ref
                          └──────────────┬──────────────┘
@@ -77,7 +77,7 @@ PenGuard (formerly Purple Web) is an enterprise-grade, **closed-loop DevSecOps**
          |     (Auto-Crawl + Scan) |                       |     (Log & Leak Triage) |
          |                         |                       |                         |
          |  2. Exploit Formulation |                       |  4. Hardening & Patch   |
-         |     (Targeted Payload)  |                       |     (AST-safe Patch)    |
+         |     (Targeted Payload)  |                       |     (String-Based Text Patch)    |
          +-------------------------+                       +-------------------------+
                       |                                                 ^
                       | (Adversarial Traffic)                           | (Policy Injection)

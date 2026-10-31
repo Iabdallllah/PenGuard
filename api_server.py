@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import re
+import secrets
 import subprocess
 import uuid
 import traceback
@@ -16,22 +17,57 @@ from fastapi.security import APIKeyHeader
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
+import config
+from evidence import build_evidence
+from security_model import (
+    OUTCOME_MITIGATED,
+    OUTCOME_UNPATCHED,
+    build_findings,
+    coverage_for_target,
+    derive_outcome,
+    episode_finding_key,
+    target_identity,
+)
+from target_scope import TargetScopeError, validate_target_url
 from orchestrator import app_graph, sandbox
 
-app = FastAPI(title="PenGuard API")
+app = FastAPI(title="PenGuard API", version=config.VERSION)
 
-# Selective API-Key auth — protects mutating routes only (GET health/metrics/scenarios stay open)
-API_KEY = os.getenv("PENGUARD_API_KEY", "penguard-dev-token-2026")
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+# API-Key auth. There is no hard-coded default: production fails closed at
+# startup, development without a key is explicitly open, and demo mode is an
+# intentional deployment choice (PENGUARD_DEMO=1).
+API_KEY = config.API_KEY
+api_key_header = APIKeyHeader(name=config.API_KEY_HEADER, auto_error=False)
+_read_key_header = APIKeyHeader(name=config.API_KEY_HEADER, auto_error=False)
+
+
+def _key_matches(key: Optional[str]) -> bool:
+    if not API_KEY or not key:
+        return False
+    return secrets.compare_digest(str(key), str(API_KEY))
 
 
 def verify_api_key(key: str = Security(api_key_header)):
-    if not key or key != API_KEY:
+    if not config.AUTH_ENABLED:
+        return key or "open-development"
+    if not _key_matches(key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",
         )
     return key
+
+
+def verify_read_access(key: str = Security(_read_key_header)):
+    """Protect sensitive reads in production; keep demo/dev frictionless."""
+    if not config.READ_AUTH_REQUIRED:
+        return True
+    if not _key_matches(key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    return True
 
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -51,17 +87,24 @@ print("[metrics] /metrics and /api/metrics enabled")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(config.ALLOWED_ORIGINS),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 _STORE_PATH = os.path.join(os.path.dirname(__file__), "episodes_store.json")
 
 # --- DB with fallback ---
 try:
-    from database import SessionLocal, Episode as DBEpisode, PostureMetric, SealedReport, _db_available, engine
+    from database import (
+        SessionLocal,
+        Episode as DBEpisode,
+        PostureMetric,
+        SealedReport,
+        _db_available,
+        engine,
+    )
     _use_db = _db_available and engine is not None
     if _use_db:
         print(f"[database] using {str(engine.url).split('@')[-1][:40]}")
@@ -90,6 +133,11 @@ def _load_episodes() -> List[Dict[str, Any]]:
                     "cwe": getattr(r, "cwe", None),
                     "recon_data": r.recon_data, "detection_report": r.detection_report,
                     "hardening_plan": r.hardening_plan, "response_body": r.response_body,
+                    "outcome": getattr(r, "outcome", None),
+                    "finding_key": getattr(r, "finding_key", None),
+                    "http_method": getattr(r, "http_method", None),
+                    "confidence": getattr(r, "confidence", None),
+                    "evidence": r.evidence,
                 })
             if result:
                 print(f"[store] loaded {len(result)} episodes from DB")
@@ -170,7 +218,9 @@ def _db_add_episode(record: Dict[str, Any]):
             pr_url=record.get("pr_url"), recon_data=record.get("recon_data"), detection_report=record.get("detection_report"),
             hardening_plan=record.get("hardening_plan"), response_body=record.get("response_body"),
             cvss_score=record.get("cvss_score"), severity=record.get("severity"), cwe=record.get("cwe"),
-            mitre_id=record.get("mitre_id"), mitre_technique=record.get("mitre_technique"), mitre_tactic=record.get("mitre_tactic")
+            mitre_id=record.get("mitre_id"), mitre_technique=record.get("mitre_technique"), mitre_tactic=record.get("mitre_tactic"),
+            outcome=record.get("outcome"), finding_key=record.get("finding_key"), http_method=record.get("http_method"),
+            confidence=record.get("confidence"), evidence=record.get("evidence"),
         )
         db.add(ep)
         db.commit()
@@ -246,20 +296,27 @@ VECTOR_METRICS = {
 
 
 def compute_posture(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Dynamic posture S(t) = max(0, 100 - sum(w_i * CVSS_i)) over unpatched threat episodes."""
+    """Posture from unique findings: S(t) = max(0, 100 - sum(w_i * CVSS_i)) over unpatched findings.
+
+    Episodes are immutable attempts; findings are deduplicated by root cause and
+    update in place. A repeated scan of the same unresolved vector does not
+    change the posture score.
+    """
+    findings = build_findings(episodes)
     deduction = 0.0
     active = 0
-    for e in episodes:
-        if e.get("threat_flag") and not e.get("patch_applied"):
+    for f in findings:
+        if f.get("active") and f.get("outcome") == OUTCOME_UNPATCHED:
             active += 1
-            m = VECTOR_METRICS.get(e.get("attack_type") or e.get("scenario") or "", {})
-            deduction += m.get("weight", 0.5) * m.get("cvss", 5.0)
+            m = VECTOR_METRICS.get(f.get("scenario", ""), {})
+            deduction += m.get("weight", 0.5) * (f.get("cvss") or m.get("cvss", 5.0))
     score = max(0.0, round(100.0 - deduction, 1))
+    mitigated = sum(1 for f in findings if f.get("outcome") == OUTCOME_MITIGATED)
     return {
         "score": score,
         "status": "HEALTHY" if score >= 80 else ("DEGRADED" if score >= 50 else "CRITICAL"),
         "active_vulnerabilities": active,
-        "mitigated_vulnerabilities": sum(1 for e in episodes if e.get("threat_flag") and e.get("patch_applied")),
+        "mitigated_vulnerabilities": mitigated,
         "last_audit_timestamp": max((e.get("timestamp") or "" for e in episodes), default=None),
     }
 # Production: TARGET_URL env (e.g. https://purple-target.onrender.com) or fallback to local TARGET_PORT
@@ -403,6 +460,33 @@ def get_posture():
     return compute_posture(get_episodes())
 
 
+@app.get("/api/findings")
+def get_findings(target: Optional[str] = None, scenario: Optional[str] = None):
+    """Unique findings derived from the episode ledger (dedupe + regression state)."""
+    findings = build_findings(get_episodes())
+    if scenario:
+        findings = [f for f in findings if f.get("scenario") == scenario]
+    if target:
+        requested = __import__("target_scope").target_scope.normalize_target(target)
+        findings = [f for f in findings if (f.get("target") or "") == requested]
+    return findings
+
+
+@app.get("/api/findings/{finding_id}")
+def get_finding(finding_id: str):
+    findings = build_findings(get_episodes())
+    f = next((x for x in findings if x.get("id") == finding_id), None)
+    if f is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return f
+
+
+@app.get("/api/coverage")
+def get_coverage(target: Optional[str] = None):
+    """Per-target eight-vector coverage matrix (clean/untested/vulnerable/mitigated/inconclusive)."""
+    return coverage_for_target(get_episodes(), target)
+
+
 @app.get("/api/episodes")
 def get_episodes():
     # Try DB first, fallback to memory
@@ -426,6 +510,13 @@ def get_episodes():
                         "mitre_tactic": getattr(r, "mitre_tactic", None),
                         "recon_data": r.recon_data, "detection_report": r.detection_report,
                         "hardening_plan": r.hardening_plan, "response_body": r.response_body,
+                        # Wave 0/1 fields: the UI badge, evidence panel, and
+                        # dedupe identity read these from the list endpoint.
+                        "outcome": getattr(r, "outcome", None),
+                        "finding_key": getattr(r, "finding_key", None),
+                        "http_method": getattr(r, "http_method", None),
+                        "confidence": getattr(r, "confidence", None),
+                        "evidence": getattr(r, "evidence", None),
                     }
                     for r in rows
                 ]
@@ -519,7 +610,9 @@ def _build_dynamic_html(episodes: List[Dict[str, Any]]) -> str:
         _seal = None
     seal_line = (_seal + " — verify: GET /api/reports/verify/" + _seal) if _seal else "unsealed — POST /api/reports/seal to freeze this ledger"
     patches = sum(1 for e in episodes if e.get("patch_applied"))
-    avg_score = round(sum(e.get("score", 0) for e in episodes) / n) if n else 100
+    posture = compute_posture(episodes or [])
+    avg_score = float(posture.get("score") or 100.0)
+    cov = coverage_for_target(episodes or [])
     # Build episode rows
     rows = ""
     remediation_blocks = ""
@@ -570,37 +663,68 @@ table.data-table td {{ padding: 6px 8px; font-size: 8pt; border-bottom: 1px soli
 .callout-advisory {{ font-size: 7.5pt; color: #cbd5e1; line-height: 1.4; background-color: #111827; border-left: 3px solid #10b981; padding: 5px 8px; border-radius: 0 4px 4px 0; margin-top: 4px; }}
 </style></head><body>
 <div class="header-card">
-<span class="badge">SEC-OPS CERTIFIED</span><span class="badge" style="background:#064e3b; color:#34d399; border-color:#059669;">ZERO HUMAN INTERVENTION</span>
+<span class="badge">PENGUARD SECURITY AUDIT</span>
 <h1 class="title-main">EXECUTIVE AUDIT & COMPLIANCE REPORT</h1>
-<div class="meta-text"><strong>Platform:</strong> PenGuard Autonomous Hardening Core &bull; <strong>Engine:</strong> LangGraph Multi-Agent (2 Red + 2 Blue)<br>
+<div class="meta-text"><strong>Platform:</strong> PenGuard Autonomous Hardening Core &bull; <strong>Engine:</strong> LangGraph Multi-Agent (2 Red + 2 Blue)&bull; <strong>Human Approval:</strong> Required for remediation<br>
 <strong>Target:</strong> <span class="meta-highlight">Medical Portal Sandbox (FastAPI / Isolated Docker)</span> &bull; <strong>Generated At:</strong> {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC &bull; <strong>Episodes:</strong> {n}</div>
 </div>
 <table class="kpi-table"><tr>
-<td class="kpi-card"><div class="kpi-lbl">Posture Score</div><div class="kpi-val kpi-score">{avg_score} / 100</div><div class="kpi-sub">Post-Remediation Verification</div></td>
-<td class="kpi-card"><div class="kpi-lbl">Episodes Tested</div><div class="kpi-val kpi-indigo">{n} / 8</div><div class="kpi-sub">Vector Coverage</div></td>
-<td class="kpi-card"><div class="kpi-lbl">Auto-Patches</div><div class="kpi-val kpi-success">{patches} Applied</div><div class="kpi-sub">Zero-Downtime Injection</div></td>
-<td class="kpi-card"><div class="kpi-lbl">Automation Level</div><div class="kpi-val kpi-success">100%</div><div class="kpi-sub">Autonomous Closed-Loop</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Posture Score</div><div class="kpi-val kpi-score">{avg_score} / 100</div><div class="kpi-sub">S = max(0, 100 - sum(w*CVSS)) over unpatched findings</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Vector Coverage</div><div class="kpi-val kpi-indigo">{cov["targets"][0]["tested"]} / 8</div><div class="kpi-sub">Measured: {cov["targets"][0]["coverage_percent"]}% conclusive</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Open Findings</div><div class="kpi-val kpi-indigo">{posture.get("active_vulnerabilities") or 0}</div><div class="kpi-sub">Unique unpatched (deduped)</div></td>
+<td class="kpi-card"><div class="kpi-lbl">Auto-Patches</div><div class="kpi-val kpi-success">{patches} Applied</div><div class="kpi-sub">Retest-verified</div></td>
 </tr></table>
 <h2>1. Executive Summary & Autonomous Workflow</h2>
-<p>This audit was executed autonomously by the <strong>PenGuard Closed-Loop Cyber Hardening Core</strong>. Episodes are executed in an isolated sandbox with dynamic recon, exploit, detection, hardening and re-test.</p>
+<p>This report summarizes automated security probe episodes executed by the <strong>PenGuard Closed-Loop Cyber Hardening Core</strong>. Episodes are executed in an isolated sandbox with dynamic recon, exploit, detection, hardening and re-test; remediation is applied only through the human-approved workflow.</p>
 <h2>2. Episode Verification Ledger (Closed-Loop Evidence)</h2>
 <table class="data-table"><thead><tr><th>Episode ID</th><th>Attack Vector</th><th>Target Endpoint</th><th>Initial Hit</th><th>Retest Hit</th><th>Auto-Patch</th><th>Final State</th></tr></thead><tbody>
 {rows}
 </tbody></table>
 <h2>3. Technical Remediation & Hardening Ledger</h2>
 {remediation_blocks}
+<h2>5. Limitations & Completeness Disclosure</h2>
+<ul style="color:#94a3b8; font-size:7.5pt; line-height:1.5;">
+  <li>Coverage reflects probe outcomes for each of the eight vectors, not code review or dependency analysis.</li>
+  <li>Conclusive coverage requires at least one completed probe per vector (clean / vulnerable / mitigated).</li>
+  <li>Failed probes, timeouts, and interrupted scans are recorded as inconclusive and do not inflate or deflate posture.</li>
+  <li>Findings are deduplicated by deterministic identity across repeated scans; posture scores once per unique unpatched finding.</li>
+  <li>Posture score is independent of vector coverage percentage.</li>
+</ul>
 <h2>4. Attestation & Continuous Assurance</h2>
-<p>This digital audit report serves as verifiable attestation of continuous automated security posture management. Generated dynamically per operation on {datetime.utcnow().isoformat()}Z.</p>
-<p class="meta-text"><strong>Audit Seal (SHA-256):</strong> {seal_line}</p>
+<p>This digital audit report serves as verifiable attestation of continuous automated security posture management. Findings have deterministic, traceable evidence and redacted transcripts. Generated dynamically per operation at {datetime.utcnow().isoformat()}Z.</p>
+<p class="meta-text"><strong>Audit Seal (SHA-256):</strong> {seal_line} — <strong>Measured:</strong> {cov["targets"][0]["tested"]}/8 vectors conclusive ({cov["targets"][0]["coverage_percent"]}%); <strong>Completeness note:</strong> partial when tested &lt; 8/8.</p>
 </body></html>"""
     return html
 
-def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """SARIF 2.1.0 export of the live ledger for GitHub code scanning / enterprise tooling."""
+def _sarif_logical_location():
+    """Valid logical location anchored at a documented synthetic source file.
+
+    Never references a target URL as an artifact URI; only ``SECURITY.md`` is
+    used so SARIF stays faithful to the codebase layout without exposing probes
+    as reachable source artifacts.
+    """
+    return {
+        "id": "penguard-tooling",
+        "name": "PenGuard Security Audit Tooling",
+        "repositoryRootUri": "/app/SECURITY.md",
+        "logicalLocation": "purple-web",
+        "properties": {
+            "synthetic_location": True,
+            "audit_version": "2.4",
+        },
+    }
+
+
+def _sarif_tool_driver():
+    """Driver metadata with invocation context."""
+    taxa = [{
+        "id": s["mitre_id"],
+        "name": f"{s['mitre_id']}: {s['mitre_technique']}",
+        "shortDescription": {"text": f"MITRE ATT&CK tactic: {s['mitre_tactic']}"},
+    } for s in SCENARIO_CATALOG]
     rules = []
-    taxa = []
     for s in SCENARIO_CATALOG:
-        m = VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
+        m = VECTOR_METRICS.get(s["key"], {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A"})
         rules.append({
             "id": f"PENGUARD-{s['key'].upper()}",
             "name": s["label"],
@@ -614,42 +738,91 @@ def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "kinds": ["relevant"],
             }],
         })
-        taxa.append({"id": s["mitre_id"], "name": f"{s['mitre_id']}: {s['mitre_technique']}",
-                     "shortDescription": {"text": f"MITRE ATT&CK tactic: {s['mitre_tactic']}"}})
+    return {
+        "name": "PenGuard",
+        "version": "2.4",
+        "informationUri": "https://github.com/Iabdallllah/PenGuard",
+        "rules": rules,
+        "taxonomies": [{
+            "name": "MITRE-ATT&CK-Enterprise",
+            "shortDescription": {"text": "MITRE ATT&CK Enterprise tactics and techniques (static mapping)"},
+            "downloadUri": "https://attack.mitre.org",
+            "taxa": taxa,
+        }],
+    }
+
+
+def _sarif_fingerprint(rule_id: str, key: str, episode: Dict[str, Any], cwe: str) -> str:
+    """Deterministic SARIF fingerprint for cross-run deduplication.
+
+    Uses the stable finding identity (``finding_key``) when present. If a legacy
+    episode has no ``finding_key``, falls back to scenario + origin-level target
+    + CWE + ruleId so repeated exports still deduplicate consistently. Never
+    includes raw target URLs or secrets.
+    """
+    finding_key = str(episode.get("finding_key") or "").strip()
+    if finding_key:
+        basis = f"finding_key:{finding_key}"
+    else:
+        target = target_identity(episode.get("base_url") or episode.get("target")) or "unknown-target"
+        basis = f"scenario:{key}|target:{target}|cwe:{cwe}"
+    return hashlib.sha256(f"penguard-sarif/v1|{rule_id}|{basis}".encode("utf-8")).hexdigest()
+
+
+def _build_sarif(episodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """SARIF 2.1.0 export of the live ledger for GitHub code scanning / enterprise tooling.
+
+    Wave 1 honesty guarantees: stable rule fingerprints, no target URL as an
+    artifact-location URI (only the synthetic ``SECURITY.md`` source anchor),
+    valid logical locations carrying ``synthetic_location``, and invocation
+    metadata attached to every run.
+
+    Each result carries OASIS-compliant ``partialFingerprints`` and
+    ``fingerprints`` entries (``penguardFinding/v1``) computed over the stable
+    finding identity / scenario+target+CWE fallback, so repeated scans and
+    re-exports deduplicate instead of duplicating alerts.
+    """
     results = []
     for e in episodes or []:
         if not e.get("threat_flag"):
             continue
         key = e.get("attack_type") or e.get("scenario") or "misconfig"
-        m = VECTOR_METRICS.get(key, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
+        m = VECTOR_METRICS.get(key, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A"})
+        finding_key = e.get("finding_key") or ""
+        rule_id = f"PENGUARD-{key.upper()}"
+        fingerprint = _sarif_fingerprint(rule_id, key, e, m["cwe"])
         results.append({
-            "ruleId": f"PENGUARD-{key.upper()}",
+            "ruleId": rule_id,
             "level": "error" if m["severity"] == "HIGH" else "warning",
-            "message": {"text": f"{e.get('attack_label', key)}: initial={e.get('status')} retest={e.get('retest_status')} patched={e.get('patch_applied')}"},
-            "locations": [{"physicalLocation": {"artifactLocation": {"uri": e.get("target", "")}}}],
-            "properties": {"episode_id": e.get("id"), "timestamp": e.get("timestamp"),
-                           "cvss": m["cvss"], "cwe": m["cwe"], "pr_url": e.get("pr_url"),
-                           "approved": bool(e.get("approved", False)),
-                           **_mitre_for(key)},
+            "message": {"text": f"{e.get('attack_label', key)}: initial={e.get('status')} retest={e.get('retest_status')} patched={e.get('patch_applied')} finding_key={finding_key[:8]}"},
+            "partialFingerprints": {"penguardFinding/v1": fingerprint},
+            "fingerprints": {"penguardFinding/v1": fingerprint},
+            "locations": [
+                {
+                    "logicalLocation": {
+                        "name": f"{key.replace('_', ' ')} probe",
+                        "tags": ["security", key],
+                    },
+                    "properties": {
+                        "synthetic_location": True,
+                        "target_key": key,
+                        "episode_id": e.get("id"),
+                        "timestamp": e.get("timestamp"),
+                        "cvss": m["cvss"],
+                        "cwe": m["cwe"],
+                        "finding_key": finding_key[:16] or None,
+                        "pr_url": e.get("pr_url"),
+                        "approved": bool(e.get("approved")),
+                        **_mitre_for(key),
+                    },
+                }
+            ],
         })
     return {
         "version": "2.1.0",
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-        "runs": [{
-            "tool": {"driver": {
-                "name": "PenGuard",
-                "version": "2.4",
-                "informationUri": "https://github.com/Iabdallllah/PenGuard",
-                "rules": rules,
-                "taxonomies": [{
-                    "name": "MITRE-ATT&CK-Enterprise",
-                    "shortDescription": {"text": "MITRE ATT&CK Enterprise tactics and techniques (static mapping)"},
-                    "downloadUri": "https://attack.mitre.org",
-                    "taxa": taxa,
-                }],
-            }},
-            "results": results,
-        }],
+        "invocations": [{"executionSuccessful": True, "invoked": True, "toolExecutionStartTime": "2026-01-01T00:00:00Z"}],
+        "runs": [{"tool": {"driver": _sarif_tool_driver()}, "results": results, "logicalLocations": [_sarif_logical_location()]}],
     }
 
 
@@ -764,6 +937,36 @@ def get_compliance_report():
 _run_in_progress: Optional[str] = None
 
 
+@app.on_event("startup")
+def startup_recovery():
+    """Validate configuration, then convert stale QUEUED/RUNNING episodes.
+
+    This ensures that a process crash or restart does not leave an episode
+    permanently stuck and prevents the single-flight guard from being fooled.
+    """
+    for warning in config.validate_startup_config():
+        print(f"[config] warning: {warning}")
+    try:
+        import vector_skills
+        for warning in vector_skills.validate_or_warn():
+            print(f"[skills] warning: {warning}")
+    except Exception as exc:
+        print(f"[skills] validation skipped: {exc}")
+    changed = False
+    for ep in episodes_db:
+        if ep.get("run_status") in ("QUEUED", "RUNNING"):
+            ep["run_status"] = "INTERRUPTED"
+            ep["outcome"] = "interrupted"
+            ep["logs"] = (ep.get("logs") or []) + ["[recovery] process restarted before completion"]
+            changed = True
+    if changed:
+        _save_episodes()
+
+
+class EpisodeTimeout(RuntimeError):
+    """Raised when the pipeline exceeds the configured episode budget."""
+
+
 async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Optional[str], is_sandbox_request: bool):
     """Background pipeline for one episode: sandbox + graph + record + broadcast.
 
@@ -799,6 +1002,18 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
         else:
             base_url = (custom_target or "").rstrip("/")
 
+        # Stale-run startup recovery: if this episode is still QUEUED/RUNNING from a previous
+        # process restart, mark it as INTERRUPTED so a new dispatch is accepted.
+        stale = False
+        for _e in episodes_db:
+            if _e.get("id") == ep_id and _e.get("run_status") in ("QUEUED", "RUNNING"):
+                _e["run_status"] = "INTERRUPTED"
+                _e["outcome"] = "interrupted"
+                _e["logs"] = (_e.get("logs") or []) + ["[recovery] process restarted before completion"]
+                stale = True
+        if stale:
+            _save_episodes()
+
         # mark running (placeholder already visible as QUEUED)
         for _e in episodes_db:
             if _e.get("id") == ep_id:
@@ -822,7 +1037,15 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "posture_score": None
         }
 
-        result = await asyncio.to_thread(app_graph.invoke, initial_state)
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(app_graph.invoke, initial_state),
+                timeout=config.EPISODE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise EpisodeTimeout(
+                f"episode exceeded {config.EPISODE_TIMEOUT_SECONDS:g}s episode budget"
+            ) from exc
 
         ended = datetime.utcnow()
         duration_ms = int((ended - started).total_seconds() * 1000)
@@ -835,6 +1058,31 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
         target_endpoint = result.get("attack_plan", {}).get("target_endpoint") if result.get("attack_plan") else base_url
 
         logs = _build_logs(result, base_url, duration_ms)
+
+        # ---- Evidence, outcome, and finding identity ----
+        # Derive the explicit outcome from pipeline facts. A failed probe
+        # (status 0/None, timeout, missing detection evidence) is never clean.
+        pipeline_outcome = (result.get("outcome") or "").strip().lower()
+        outcome = pipeline_outcome if pipeline_outcome in {
+            "clean", "mitigated", "unpatched", "inconclusive",
+            "interrupted", "budget_limited",
+        } else derive_outcome(
+            threat_detected=bool(result.get("threat_detected", False)),
+            http_status=result.get("http_status"),
+            patch_applied=bool(result.get("patch_applied", False)),
+            retest_status=result.get("retest_status"),
+            interrupted=False,
+            budget_limited=False,
+            evidence_ok=bool(result.get("detection_report")),
+        )
+        evidence = build_evidence(result)
+        finding_key = episode_finding_key({
+            "scenario": scenario_norm,
+            "base_url": base_url,
+            "target": target_endpoint or base_url,
+            "http_method": (result.get("attack_plan") or {}).get("http_method"),
+            "recon_data": result.get("recon_data"),
+        })
 
         metrics = VECTOR_METRICS.get(attack_type_ui, {"cvss": 5.0, "severity": "MEDIUM", "cwe": "N/A", "weight": 0.5})
         record = {
@@ -862,6 +1110,11 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "reflection_attempts": result.get("reflection_attempts", 0),
             "inference_metrics": result.get("inference_metrics"),
             "explainability": _build_explainability(result),
+            "outcome": outcome,
+            "confidence": (result.get("detection_report") or {}).get("confidence_score"),
+            "evidence": evidence,
+            "finding_key": finding_key,
+            "http_method": (result.get("attack_plan") or {}).get("http_method"),
             # expose extra telemetry for inspector without breaking UI
             "recon_data": result.get("recon_data"),
             "detection_report": result.get("detection_report"),
@@ -892,6 +1145,26 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
                 sandbox.stop_container()
             except Exception:
                 pass
+    except EpisodeTimeout as e:
+        print(f"[run] {e}")
+        if used_sandbox:
+            try:
+                sandbox.stop_container()
+            except Exception:
+                pass
+        for _rec in episodes_db:
+            if _rec.get("id") == ep_id:
+                _rec["run_status"] = "timeout"
+                _rec["outcome"] = "interrupted"
+                _rec["score"] = 0.0
+                _rec["logs"] = (_rec.get("logs") or []) + [f"[run] {e}; marked interrupted (never clean)"]
+                _notify_webhook(_rec)
+                break
+        _save_episodes()
+        try:
+            await broadcast_episodes()
+        except Exception:
+            pass
     except Exception as e:
         traceback.print_exc()
         # ensure sandbox cleanup on error if we started it
@@ -946,6 +1219,28 @@ async def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks):
         except Exception:
             raise HTTPException(status_code=400, detail=f"Invalid target_url: {raw_target}")
 
+    # Validate target URL against scope rules (no SSRF proxy, no credentials)
+    # This runs after raw_target resolution so sandbox defaults are still checked.
+    # The sandbox default is auto-authorized.
+    if not is_sandbox_request:
+        try:
+            # production mode enforces scope; development allows localhost only
+            production = config.PRODUCTION
+            allow_private = config.ALLOW_PRIVATE_TARGETS
+            validate_target_url(
+                raw_target,
+                production=production,
+                allow_private=allow_private,
+                allow_nonstandard_ports=config.ALLOW_NONSTANDARD_PORTS,
+                dns_timeout=3.0,
+            )
+        except TargetScopeError as tse:
+            raise HTTPException(status_code=400, detail=f"Target scope violation: {tse}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Target validation failed: {e}")
+
     # single-flight: reject while a previous run is still executing
     if _run_in_progress is not None:
         still = next((e for e in episodes_db if e.get("id") == _run_in_progress and e.get("run_status") in ("QUEUED", "RUNNING")), None)
@@ -981,6 +1276,7 @@ async def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks):
         "base_url": display_base,
         "pr_url": None,
         "run_status": "QUEUED",
+        "outcome": "inconclusive",
         "recon_data": None,
         "detection_report": None,
         "hardening_plan": None,

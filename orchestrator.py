@@ -12,6 +12,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 from memory_manager import store_episode_memory, retrieve_past_context
 from sandbox_manager import SandboxManager
+from security_model import derive_outcome, score_for_outcome
+import config
+from reliability import invoke_with_retry
 
 sandbox = SandboxManager()
 
@@ -22,7 +25,14 @@ def _get_llm():
         return None
     try:
         from langchain_groq import ChatGroq
-        return ChatGroq(model_name="openai/gpt-oss-20b", temperature=0)
+        # Retries are owned by reliability.invoke_with_retry (single retry layer);
+        # the SDK's own retry loop is disabled to keep attempts bounded.
+        return ChatGroq(
+            model_name="openai/gpt-oss-20b",
+            temperature=0,
+            request_timeout=config.LLM_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
     except Exception as e:
         print(f"[orchestrator] Groq init failed, fallback to mock: {e}")
         return None
@@ -57,10 +67,50 @@ except Exception:
     _usage_handler = None
 
 
+class BudgetExceeded(RuntimeError):
+    """Raised when an episode exceeds its configured token/cost budget."""
+
+
+def _usage_cost_usd() -> Optional[float]:
+    """Measured cost only when both prices are configured; never invented."""
+    if config.PRICE_PER_1K_IN_USD is None or config.PRICE_PER_1K_OUT_USD is None:
+        return None
+    return (
+        _USAGE["prompt_tokens"] / 1000 * config.PRICE_PER_1K_IN_USD
+        + _USAGE["completion_tokens"] / 1000 * config.PRICE_PER_1K_OUT_USD
+    )
+
+
+def _budget_exceeded() -> bool:
+    if config.MAX_TOKENS_PER_EPISODE is not None:
+        if (_USAGE["prompt_tokens"] + _USAGE["completion_tokens"]) >= config.MAX_TOKENS_PER_EPISODE:
+            return True
+    cost = _usage_cost_usd()
+    if config.MAX_COST_USD_PER_EPISODE is not None and cost is not None:
+        return cost >= config.MAX_COST_USD_PER_EPISODE
+    return False
+
+
+def _budget_message() -> str:
+    tokens = _USAGE["prompt_tokens"] + _USAGE["completion_tokens"]
+    cost = _usage_cost_usd()
+    bits = [f"tokens={tokens}"]
+    if cost is not None:
+        bits.append(f"cost_usd={cost:.6f}")
+    return "Episode budget exceeded (" + ", ".join(bits) + "); using deterministic fallback"
+
+
 def _configured_llm():
-    """Live LLM with usage capture, or None in fallback mode."""
+    """Live LLM with usage capture, or None in fallback mode.
+
+    Raises ``BudgetExceeded`` before a call when the episode's configured
+    token/cost budget is exhausted; callers catch it and take the deterministic
+    fallback, and ``scoring_and_storage_node`` records ``budget_limited``.
+    """
     if llm is None or _usage_handler is None:
         return llm
+    if _budget_exceeded():
+        raise BudgetExceeded(_budget_message())
     try:
         return llm.with_config(callbacks=[_usage_handler])
     except Exception:
@@ -103,6 +153,23 @@ def _fallback_recon(scenario: str):
         return {"target_surface": "/api/user/102", "suspected_vulnerability": "IDOR", "target_parameter": "user_id", "recon_notes": "Direct object identifier parameter"}
 
 def _fallback_attack_plan(scenario: str, base_url: str, vuln: str):
+    # Optional declarative vector skills (validated; off by default). The
+    # deterministic branch below remains authoritative when the flag is off and
+    # is golden-tested for parity with the enabled path.
+    if config.VECTOR_SKILLS_ENABLED:
+        try:
+            from vector_skills import skill_for
+            skill = skill_for(scenario)
+            if skill:
+                return {
+                    "vulnerability_target": skill["vulnerability_target"],
+                    "target_endpoint": f"{base_url}{skill['endpoint']}",
+                    "http_method": skill["method"],
+                    "payload_json": skill.get("payload_json"),
+                    "hypothesis": skill.get("hypothesis") or "",
+                }
+        except Exception as e:
+            print(f"[skills] fallback to built-in plan: {e}")
     # vuln is from recon suspected_vulnerability
     if vuln == "SQL Injection" or scenario == "sql_injection":
         return {
@@ -332,7 +399,7 @@ def _crawl_and_discover(base_url: str, scenario: str) -> dict:
         try:
             url = base_url.rstrip("/") + path
             # For POST endpoints, try GET first to see if exists (405 is also existence)
-            r = requests.get(url, headers=headers, timeout=3, allow_redirects=False)
+            r = requests.get(url, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS, allow_redirects=False)
             if r.status_code < 500:  # 200, 401, 403, 405 all indicate endpoint exists
                 discovered = path.split("?")[0]
                 notes = f"Discovered via probe {path} -> {r.status_code}"
@@ -342,7 +409,7 @@ def _crawl_and_discover(base_url: str, scenario: str) -> dict:
     # 2. Fallback: crawl HTML for links/forms if nothing found (for external like voxorai.vercel.app)
     if not discovered:
         try:
-            r = requests.get(base_url, headers=headers, timeout=5)
+            r = requests.get(base_url, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
             if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
                 try:
                     from bs4 import BeautifulSoup
@@ -397,7 +464,7 @@ def _crypto_posture_check(base_url: str) -> str:
         try:
             r = requests.get(base_url.rstrip("/") or "http://127.0.0.1:8001",
                              headers={"User-Agent": "PenGuard-Recon/1.0"},
-                             timeout=5, allow_redirects=False)
+                             timeout=config.TARGET_HTTP_TIMEOUT_SECONDS, allow_redirects=False)
             h = {k.lower(): v for k, v in r.headers.items()}
             if scheme == "https" and "strict-transport-security" not in h:
                 findings.append("missing-HSTS")
@@ -415,7 +482,7 @@ def _crypto_posture_check(base_url: str) -> str:
         if scheme == "https":
             try:
                 ctx = ssl.create_default_context()
-                with socket.create_connection((host, port), timeout=5) as sock:
+                with socket.create_connection((host, port), timeout=config.TARGET_HTTP_TIMEOUT_SECONDS) as sock:
                     with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                         tls_note = f"{ssock.version()} cipher={ssock.cipher()[0]}"
                         cert = ssock.getpeercert()
@@ -514,11 +581,12 @@ def red_recon_agent(state: EpisodeState) -> Dict[str, Any]:
             ("human", "Target Base: {base_url}\nDiscovered Surface: {discovered}\nPast Records: {past_memory}\nProduce surface reconnaissance output:")
         ])
         structured_recon = _configured_llm().with_structured_output(ReconOutput)
-        recon = (prompt | structured_recon).invoke({
+        chain = prompt | structured_recon
+        recon = invoke_with_retry(lambda: chain.invoke({
             "base_url": base_url,
             "past_memory": state["past_memory"],
             "discovered": json.dumps(discovered),
-        })
+        }))
         return {"recon_data": recon.model_dump()}
     except Exception as e:
         print(f"[recon] LLM failed, using fallback: {e}")
@@ -605,10 +673,11 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
                 ("human", "Recon Data: {recon}\nBase URL: {base_url}\nGenerate validation request plan:")
             ])
             structured_exec = _configured_llm().with_structured_output(AttackPlan)
-            plan_obj = (prompt | structured_exec).invoke({
+            chain = prompt | structured_exec
+            plan_obj = invoke_with_retry(lambda: chain.invoke({
                 "recon": json.dumps(recon),
                 "base_url": state["target_url"]
-            })
+            }))
             plan_dict = plan_obj.model_dump()
         except Exception as e:
             print(f"[execution] LLM failed, using fallback: {e}")
@@ -619,9 +688,9 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
     try:
         if plan_dict["http_method"].upper() == "POST":
             payload = json.loads(plan_dict["payload_json"]) if plan_dict.get("payload_json") else {}
-            resp = requests.post(plan_dict["target_endpoint"], json=payload, headers=headers, timeout=5)
+            resp = requests.post(plan_dict["target_endpoint"], json=payload, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
         else:
-            resp = requests.get(plan_dict["target_endpoint"], timeout=5)
+            resp = requests.get(plan_dict["target_endpoint"], timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
         status = resp.status_code
         body = resp.text
     except Exception as e:
@@ -669,12 +738,13 @@ def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
             ("human", "Endpoint: {url}\nStatus: {status}\nPayload: {payload}\nResponse: {body}\nEvaluate telemetry:")
         ])
         structured_detection = _configured_llm().with_structured_output(DetectionReport)
-        report = (prompt | structured_detection).invoke({
+        chain = prompt | structured_detection
+        report = invoke_with_retry(lambda: chain.invoke({
             "url": url,
             "status": status,
             "payload": payload,
             "body": body
-        })
+        }))
         report_dict = report.model_dump()
         report_dict["confidence_source"] = "llm"
         return {
@@ -716,10 +786,11 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
                 ("human", "Detection Report: {report}\nPrevious attempt feedback: {feedback}\nDetermine mitigation action and engineering remediation:")
             ])
             structured_hardening = _configured_llm().with_structured_output(HardeningPlan)
-            plan_obj = (prompt | structured_hardening).invoke({
+            chain = prompt | structured_hardening
+            plan_obj = invoke_with_retry(lambda: chain.invoke({
                 "report": json.dumps(det),
                 "feedback": state.get("reflection_feedback") or "none — first attempt",
-            })
+            }))
             plan_dict = plan_obj.model_dump()
         except Exception as e:
             print(f"[hardening] LLM failed, fallback: {e}")
@@ -731,7 +802,7 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
             r = requests.post(
                 f"{state['target_url']}/admin/apply-mitigation",
                 json={"rule": plan_dict["target_rule_name"]},
-                timeout=3
+                timeout=config.SANDBOX_CONTROL_TIMEOUT_SECONDS
             )
             patch_ok = (r.status_code == 200)
         except Exception as e:
@@ -760,9 +831,9 @@ def retest_node(state: EpisodeState) -> Dict[str, Any]:
         try:
             if plan["http_method"].upper() == "POST":
                 payload = json.loads(plan["payload_json"]) if plan.get("payload_json") else {}
-                resp = requests.post(plan["target_endpoint"], json=payload, headers=headers, timeout=5)
+                resp = requests.post(plan["target_endpoint"], json=payload, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
             else:
-                resp = requests.get(plan["target_endpoint"], timeout=5)
+                resp = requests.get(plan["target_endpoint"], timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
             retest_status = resp.status_code
         except Exception as e:
             print(f"[retest] failed: {e}")
@@ -789,23 +860,20 @@ def _route_after_retest(state: EpisodeState) -> str:
     return "score"
 
 
-def _env_float(name: str):
-    try:
-        v = os.getenv(name, "").strip()
-        return float(v) if v else None
-    except Exception:
-        return None
-
-
 def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
-    score = 100.0
-    if state["threat_detected"] and state["http_status"] == 200:
-        if state.get("retest_status") in [400, 401, 403]:
-            score = 100.0
-        else:
-            score = 60.0
-    elif not state.get("threat_detected"):
-        score = 100.0
+    # Wave 0 outcome model: derive the explicit outcome from the pipeline facts.
+    # A failed probe (status 0/None, timeout, missing detection evidence) is
+    # never clean and never receives a perfect score.
+    outcome = derive_outcome(
+        threat_detected=bool(state.get("threat_detected")),
+        http_status=state.get("http_status"),
+        patch_applied=bool(state.get("patch_applied")),
+        retest_status=state.get("retest_status"),
+        interrupted=False,
+        budget_limited=_budget_exceeded(),
+        evidence_ok=bool(state.get("detection_report")),
+    )
+    score = score_for_outcome(outcome)
 
     try:
         store_episode_memory(
@@ -871,8 +939,8 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
     pt = _USAGE["prompt_tokens"] if live else None
     ct = _USAGE["completion_tokens"] if live else None
     measured = bool(live and (pt or ct))
-    price_in = _env_float("PENGUARD_PRICE_PER_1K_IN_USD")
-    price_out = _env_float("PENGUARD_PRICE_PER_1K_OUT_USD")
+    price_in = config.PRICE_PER_1K_IN_USD
+    price_out = config.PRICE_PER_1K_OUT_USD
     cost = None
     if measured and price_in is not None and price_out is not None:
         cost = round(pt / 1000 * price_in + ct / 1000 * price_out, 6)
@@ -887,7 +955,7 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
         "estimated_cost_usd": cost,
     }
 
-    return {"posture_score": score, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url,
+    return {"posture_score": score, "outcome": outcome, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url,
             "llm_prompt_tokens": pt, "llm_completion_tokens": ct,
             "inference_metrics": inference_metrics}
 

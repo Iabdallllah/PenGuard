@@ -53,6 +53,57 @@ def test_unknown_episode_404(client):
     assert client.get("/api/episodes/does-not-exist").status_code == 404
 
 
+def test_episode_list_exposes_wave0_fields_from_db(client, clean_ledger):
+    """The list endpoint must carry outcome/evidence/finding identity, not just
+    the single-episode endpoint; the dashboard renders its inspector from the
+    list payload."""
+    import pytest
+
+    import api_server
+    from database import Episode as DBEpisode
+    from database import SessionLocal
+
+    if not (api_server._use_db and SessionLocal and DBEpisode):
+        pytest.skip("SQL database unavailable in this environment")
+
+    db = SessionLocal()
+    db.add(
+        DBEpisode(
+            id="testwave0list",
+            target="http://127.0.0.1:8001/api/user/102",
+            attack_type="idor",
+            attack_label="IDOR",
+            status=200,
+            retest_status=403,
+            patch_applied=True,
+            threat_flag=True,
+            score=100.0,
+            remediation="",
+            logs=[],
+            timestamp="2026-01-01T00:00:00Z",
+            duration_ms=0,
+            scenario="idor",
+            base_url="http://127.0.0.1:8001",
+            outcome="mitigated",
+            finding_key="f" * 64,
+            http_method="GET",
+            confidence=0.9,
+            evidence={"complete": True, "response": {"status": 200}},
+        )
+    )
+    db.commit()
+    db.close()
+
+    row = next(
+        e for e in client.get("/api/episodes").json() if e["id"] == "testwave0list"
+    )
+    assert row["outcome"] == "mitigated"
+    assert row["finding_key"] == "f" * 64
+    assert row["http_method"] == "GET"
+    assert row["confidence"] == 0.9
+    assert row["evidence"]["complete"] is True
+
+
 def test_approve_unknown_404(client, auth_headers):
     r = client.post("/api/episodes/does-not-exist/approve", headers=auth_headers)
     assert r.status_code == 404

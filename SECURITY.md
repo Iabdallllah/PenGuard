@@ -22,7 +22,7 @@ unpatched vulnerabilities.
 | Secret | Env var | Scope |
 |---|---|---|
 | API auth | `PENGUARD_API_KEY` | `POST /api/episodes/run`, `POST /api/episodes/{id}/approve`, `DELETE /api/episodes` |
-| Dashboard key | `NEXT_PUBLIC_API_KEY` | Must match `PENGUARD_API_KEY` (sent as `X-API-Key`) |
+| Dashboard BFF | `PENGUARD_API_KEY` (server-only) | Read by `dashboard/src/app/api/proxy/[...path]/route.ts`; must match the backend key and is never sent to the browser. |
 | GitHub PRs/reviews | `GITHUB_TOKEN`, `GITHUB_TARGET_REPO` | `Iabdallllah/PenGuard` (capital `I`) |
 | SOC alerts | `PENGUARD_WEBHOOK_URL` | Discord/Slack incoming webhook (optional) |
 | LLM fallback | `GROQ_API_KEY` | Absence degrades to deterministic mock agents |
@@ -30,9 +30,10 @@ unpatched vulnerabilities.
 Rules enforced by `.gitignore` + CI:
 
 - Real `.env*` files are never committed — only `.env.example` (placeholders).
-- The `PENGUARD_API_KEY` dev default (`penguard-dev-token-2026`) is a
-  **known fail-open fallback for local development**. Production MUST set a
-  strong random value in Railway Variables, otherwise API "auth" is theater.
+- The legacy credential `penguard-dev-token-2026` is treated as compromised
+  and rejected. Production MUST set a strong random `PENGUARD_API_KEY`
+  (at least 16 characters) or startup fails closed; the `dev-local-*` fallback
+  is only used outside production/demo mode.
 - Webhook payloads carry verdict fields only — never secrets or raw exploit
   query strings (XSS payloads in URLs are stripped to `base_url`).
 - The `approve` endpoint verifies PR-URL ownership before posting any review.

@@ -14,21 +14,17 @@ const BRAND = {
   reportFilename: "penguard-audit-report.pdf",
 };
 
-// Integration: use relative proxy via Next rewrites by default to avoid CORS (localhost vs 127.0.0.1)
-// Set NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000 to force absolute; empty → "/api/..."
+// Integration: all browser calls go through the server-side BFF at /api/proxy.
+// PENGUARD_API_KEY is read only on the server (route handler); it is never
+// embedded in the client bundle. NEXT_PUBLIC_API_BASE is a public URL only.
 const ENV_API_BASE = (typeof process !== "undefined" && (process.env.NEXT_PUBLIC_API_BASE as string)) || "";
 const API_BASE = ENV_API_BASE.replace(/\/$/, "");
+const API_PREFIX = "/api/proxy";
 function apiUrl(path: string) {
-  // path should start with "/"
-  if (API_BASE) return `${API_BASE}${path}`;
-  return path; // relative → handled by next.config.ts rewrites → http://127.0.0.1:8000
+  // path starts with "/", e.g. "/api/episodes" -> "/api/proxy/api/episodes"
+  return `${API_PREFIX}${path}`;
 }
-const API_DISPLAY = API_BASE || "/api";
-// Mutating calls (dispatch/clear) require X-API-Key on the backend
-const API_KEY = (typeof process !== "undefined" && (process.env.NEXT_PUBLIC_API_KEY as string)) || "penguard-dev-token-2026";
-function authHeaders(extra: Record<string, string> = {}) {
-  return { "Content-Type": "application/json", "X-API-Key": API_KEY, ...extra };
-}
+const API_DISPLAY = API_PREFIX;
 
 // Normalization helper: backend now returns scenario key (idor/sql_injection/business_logic/xss/csrf/ssrf/broken_auth/misconfig)
 function normalizeAttackKey(raw: string): ScenarioKey | null {
@@ -53,6 +49,39 @@ function normalizeAttackKey(raw: string): ScenarioKey | null {
   return null;
 }
 
+interface EvidenceArtifact {
+  schema_version?: number;
+  request?: {
+    method?: string;
+    url?: string;
+    headers?: Record<string, string>;
+    payload?: string;
+    reproduction?: string;
+  };
+  response?: {
+    status?: number | null;
+    headers?: Record<string, string>;
+    body_excerpt?: string;
+    body_sha256?: string | null;
+    body_length?: number;
+    latency_ms?: number | null;
+  };
+  retest?: {
+    status?: number | null;
+    headers?: Record<string, string>;
+    body_excerpt?: string;
+    body_sha256?: string | null;
+    body_length?: number;
+  };
+  confidence?: number | null;
+  confidence_source?: string;
+  confidence_rationale?: string;
+  assumptions?: string[];
+  counterevidence?: string;
+  limitations?: string[];
+  complete?: boolean;
+}
+
 interface Episode {
   id: string;
   target: string;
@@ -71,11 +100,46 @@ interface Episode {
   base_url?: string;
   pr_url?: string | null;
   run_status?: string;
+  outcome?: string;
+  finding_key?: string;
+  http_method?: string;
+  confidence?: number | null;
+  evidence?: EvidenceArtifact | null;
   approved?: boolean;
   recon_data?: any;
   detection_report?: any;
   hardening_plan?: any;
   response_body?: string;
+}
+
+type CoverageState = "not_run" | "clean" | "vulnerable" | "mitigated" | "inconclusive";
+
+interface CoverageVector {
+  key: ScenarioKey;
+  status: CoverageState;
+  attempts: number;
+  last_outcome?: string | null;
+  last_episode_id?: string | null;
+  last_seen?: string | null;
+  evidence_present?: boolean;
+}
+
+interface CoverageTarget {
+  target_key: string;
+  vectors: CoverageVector[];
+  counts: Record<CoverageState, number>;
+  tested: number;
+  conclusive: number;
+  inconclusive: number;
+  coverage_percent: number;
+  complete: boolean;
+}
+
+interface CoverageSummary {
+  vectors: ScenarioKey[];
+  targets: CoverageTarget[];
+  coverage_percent: number;
+  complete: boolean;
 }
 
 type ScenarioKey = "idor" | "sql_injection" | "business_logic" | "xss" | "csrf" | "ssrf" | "broken_auth" | "misconfig";
@@ -246,6 +310,142 @@ function cn(...c: (string | false | undefined)[]) {
   return c.filter(Boolean).join(" ");
 }
 
+// ── Episode outcome semantics (Wave 0 vocabulary) ──
+// Styling is static Tailwind classes so the compiler can see every variant.
+const OUTCOME_META: Record<string, { label: string; badge: string; dot: string }> = {
+  clean: {
+    label: "Clean",
+    badge: "bg-emerald-500/10 border-emerald-500/20 text-emerald-300",
+    dot: "bg-emerald-400",
+  },
+  mitigated: {
+    label: "Mitigated",
+    badge: "bg-cyan-500/10 border-cyan-500/20 text-cyan-300",
+    dot: "bg-cyan-400",
+  },
+  unpatched: {
+    label: "Vulnerable",
+    badge: "bg-rose-500/10 border-rose-500/20 text-rose-300",
+    dot: "bg-rose-400",
+  },
+  vulnerable: {
+    label: "Vulnerable",
+    badge: "bg-rose-500/10 border-rose-500/20 text-rose-300",
+    dot: "bg-rose-400",
+  },
+  inconclusive: {
+    label: "Inconclusive",
+    badge: "bg-amber-500/10 border-amber-500/20 text-amber-300",
+    dot: "bg-amber-400",
+  },
+  interrupted: {
+    label: "Interrupted",
+    badge: "bg-orange-500/10 border-orange-500/20 text-orange-300",
+    dot: "bg-orange-400",
+  },
+  budget_limited: {
+    label: "Budget limited",
+    badge: "bg-violet-500/10 border-violet-500/20 text-violet-300",
+    dot: "bg-violet-400",
+  },
+  timeout: {
+    label: "Timeout",
+    badge: "bg-amber-500/10 border-amber-500/20 text-amber-300",
+    dot: "bg-amber-400",
+  },
+  queued: {
+    label: "Queued",
+    badge: "bg-slate-800 border-slate-700 text-slate-300",
+    dot: "bg-slate-400",
+  },
+  running: {
+    label: "Running",
+    badge: "bg-slate-800 border-slate-700 text-slate-300",
+    dot: "bg-cyan-400",
+  },
+  unknown: {
+    label: "Unknown",
+    badge: "bg-slate-900 border-slate-800 text-slate-500",
+    dot: "bg-slate-600",
+  },
+};
+
+function outcomeFor(ep: Pick<Episode, "outcome" | "run_status">) {
+  const runStatus = (ep.run_status || "").toLowerCase();
+  if (runStatus === "queued" || runStatus === "running") {
+    return OUTCOME_META[runStatus];
+  }
+  const raw = (ep.outcome || "").toLowerCase();
+  return OUTCOME_META[raw] || OUTCOME_META.unknown;
+}
+
+// A false `threat_flag` is only "Clean" when the episode outcome is conclusive.
+// Failed probes / timeouts / budget stops are "Unproven", never clean.
+function threatStateFor(ep: Pick<Episode, "threat_flag" | "outcome" | "run_status">) {
+  if (ep.threat_flag) {
+    return {
+      label: "Detected",
+      badge: "bg-amber-500/10 border-amber-500/20 text-amber-300",
+      dot: "bg-amber-400",
+    };
+  }
+  const outcome = (ep.outcome || "").toLowerCase();
+  const runStatus = (ep.run_status || "").toLowerCase();
+  if (outcome === "clean" || outcome === "mitigated") {
+    return {
+      label: "Clean",
+      badge: "bg-slate-900 border-slate-800 text-slate-500",
+      dot: "bg-slate-600",
+    };
+  }
+  if (runStatus === "queued" || runStatus === "running") {
+    return {
+      label: "Pending",
+      badge: "bg-slate-800 border-slate-700 text-slate-300",
+      dot: "bg-slate-400",
+    };
+  }
+  return {
+    label: "Unproven",
+    badge: "bg-amber-500/10 border-amber-500/20 text-amber-300",
+    dot: "bg-amber-400",
+  };
+}
+
+// Coverage states use their own vocabulary (not_run => "Untested").
+const COVERAGE_META: Record<CoverageState, { label: string; badge: string; dot: string; tile: string }> = {
+  clean: {
+    label: "Clean",
+    badge: "bg-emerald-500/10 border-emerald-500/20 text-emerald-300",
+    dot: "bg-emerald-400",
+    tile: "border-emerald-500/20 bg-emerald-500/[0.04]",
+  },
+  vulnerable: {
+    label: "Vulnerable",
+    badge: "bg-rose-500/10 border-rose-500/20 text-rose-300",
+    dot: "bg-rose-400",
+    tile: "border-rose-500/20 bg-rose-500/[0.04]",
+  },
+  mitigated: {
+    label: "Mitigated",
+    badge: "bg-cyan-500/10 border-cyan-500/20 text-cyan-300",
+    dot: "bg-cyan-400",
+    tile: "border-cyan-500/20 bg-cyan-500/[0.04]",
+  },
+  inconclusive: {
+    label: "Inconclusive",
+    badge: "bg-amber-500/10 border-amber-500/20 text-amber-300",
+    dot: "bg-amber-400",
+    tile: "border-amber-500/20 bg-amber-500/[0.04]",
+  },
+  not_run: {
+    label: "Untested",
+    badge: "bg-slate-900 border-slate-800 text-slate-500",
+    dot: "bg-slate-600",
+    tile: "border-slate-800 bg-[#06080F]",
+  },
+};
+
 // ── Custom Dropdown (Tailwind / shadcn-style, Radix-inspired) ──
 // Design: surface #0E1626, border #1E293B, muted white text, electric cyan highlight
 // Motion: fade-in + scale-95 -> scale-100 with transition-all
@@ -371,6 +571,8 @@ function ScenarioSelect({
 
 export default function Dashboard() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [posture, setPosture] = useState<{ score: number; active_vulnerabilities: number; mitigated_vulnerabilities: number } | null>(null);
+  const [coverage, setCoverage] = useState<CoverageSummary | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<ScenarioKey>("idor");
   const [targetUrl, setTargetUrl] = useState("http://127.0.0.1:8001");
   const [isDispatching, setIsDispatching] = useState(false);
@@ -380,7 +582,9 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "patched" | "threat">("all");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [showLogs, setShowLogs] = useState(true);
+  const [showEvidence, setShowEvidence] = useState(true);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState("Command Center");
@@ -391,6 +595,16 @@ export default function Dashboard() {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // Viewport-dependent sidebar hiding is applied after mount so SSR and the
+  // first client render agree (avoids a hydration mismatch on aria-hidden).
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobileViewport(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
 
   const handleNavClick = (label: string) => {
@@ -425,25 +639,8 @@ export default function Dashboard() {
 
   const fetchEpisodes = async () => {
     try {
-      // Try relative via proxy first, then absolute fallback (handles CORS/host mismatch)
-      let res: Response | null = null;
-      let lastErr: any = null;
-      const urls = [apiUrl("/api/episodes"), "http://127.0.0.1:8000/api/episodes", "http://localhost:8000/api/episodes"];
-      // deduplicate
-      const uniq = Array.from(new Set(urls));
-      for (const u of uniq) {
-        try {
-          const r = await fetch(u, { cache: "no-store" } as RequestInit);
-          // if 404 from chromadb container interfering, try next
-          if (r.ok || r.status !== 404) {
-            res = r;
-            break;
-          }
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      if (!res) throw lastErr || new Error("fetch failed");
+      // All calls go through the server-side BFF; no browser API key.
+      const res = await fetch(apiUrl("/api/episodes"), { cache: "no-store" } as RequestInit);
       if (res.ok) {
         const data = await res.json();
         setEpisodes(data);
@@ -451,7 +648,23 @@ export default function Dashboard() {
         if (data.length > 0 && !activeInspector) {
           setActiveInspector(data[data.length - 1]);
         }
-      } else {
+        // Use the server's unique-finding posture (deduped); never re-average
+        // episode scores in the browser, which would distort repeated scans.
+        try {
+          const pr = await fetch(apiUrl("/api/posture"), { cache: "no-store" } as RequestInit);
+          if (pr.ok) setPosture(await pr.json());
+        } catch {
+          /* fall back to server-provided episode score display */
+        }
+        // Eight-vector coverage matrix (clean / vulnerable / mitigated /
+        // inconclusive / untested); computed server-side from findings.
+        try {
+          const cr = await fetch(apiUrl("/api/coverage"), { cache: "no-store" } as RequestInit);
+          if (cr.ok) setCoverage(await cr.json());
+        } catch {
+          /* coverage panel falls back to all-untested placeholders */
+        }
+      } else if (res.status !== 404) {
         setFetchError(`API ${res.status}`);
       }
     } catch (err) {
@@ -555,7 +768,7 @@ export default function Dashboard() {
     try {
       const res = await fetch(apiUrl("/api/episodes/run"), {
         method: "POST",
-        headers: authHeaders(),
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scenario: selectedScenario,
           // Backend now understands default sandbox URL as isolated request; sending as-is keeps UI shape unchanged
@@ -600,7 +813,7 @@ export default function Dashboard() {
   const clearHistory = async () => {
     if (!confirm("مسح كل السجلات القديمة؟ لا يمكن التراجع.")) return;
     try {
-      const res = await fetch(apiUrl("/api/episodes"), { method: "DELETE", headers: authHeaders() });
+      const res = await fetch(apiUrl("/api/episodes"), { method: "DELETE" });
       if (res.ok) {
         setEpisodes([]);
         setActiveInspector(null);
@@ -624,16 +837,38 @@ export default function Dashboard() {
   // derived
   const completedLoops = episodes.length;
   const appliedPatches = episodes.filter((e) => e.patch_applied).length;
-  const activeThreats = episodes.filter((e) => e.threat_flag && !e.patch_applied).length;
-  const mitigatedThreats = episodes.filter((e) => e.threat_flag && e.patch_applied).length;
+  const activeThreats = posture ? posture.active_vulnerabilities : episodes.filter((e) => e.threat_flag && !e.patch_applied).length;
+  const mitigatedThreats = posture ? posture.mitigated_vulnerabilities : episodes.filter((e) => e.threat_flag && e.patch_applied).length;
   const postureScore =
-    completedLoops > 0
-      ? Math.round(episodes.reduce((acc, curr) => acc + (curr.score || 0), 0) / completedLoops)
-      : 100;
+    posture !== null
+      ? Math.round(posture.score)
+      : completedLoops > 0
+        ? Math.round(episodes.reduce((acc, curr) => acc + (curr.score || 0), 0) / completedLoops)
+        : 100;
   const postureGrade = postureScore >= 90 ? "A" : postureScore >= 75 ? "B" : postureScore >= 60 ? "C" : postureScore >= 40 ? "D" : "F";
   const postureColor =
     postureScore >= 80 ? "text-emerald-400" : postureScore >= 60 ? "text-amber-400" : "text-rose-400";
   const postureRing = postureScore >= 80 ? "#10b981" : postureScore >= 60 ? "#f59e0b" : "#f43f5e";
+  const activeCoverage = coverage?.targets?.[0] ?? null;
+  const coverageVectors: CoverageVector[] =
+    activeCoverage?.vectors ??
+    (Object.keys(SCENARIOS) as ScenarioKey[]).map((key) => ({
+      key,
+      status: "not_run" as CoverageState,
+      attempts: 0,
+      last_outcome: null,
+      evidence_present: false,
+    }));
+  const coverageTargetLabel = activeCoverage?.target_key || "sandbox-default";
+  const coverageCounts = coverageVectors.reduce<Record<CoverageState, number>>(
+    (acc, v) => {
+      acc[v.status] += 1;
+      return acc;
+    },
+    { not_run: 0, clean: 0, vulnerable: 0, mitigated: 0, inconclusive: 0 }
+  );
+  const inspectorOutcome = activeInspector ? outcomeFor(activeInspector) : null;
+  const inspectorThreat = activeInspector ? threatStateFor(activeInspector) : null;
 
   const filteredEpisodes = useMemo(() => {
     let list = [...episodes].reverse();
@@ -747,7 +982,7 @@ export default function Dashboard() {
         {/* ─── Sidebar — Collapsible Rail Mode ─── */}
         <aside
           aria-label="Primary"
-          aria-hidden={!mobileNavOpen && typeof window !== "undefined" && window.innerWidth < 1024}
+          aria-hidden={!mobileNavOpen && isMobileViewport}
           className={cn(
             "shrink-0 flex flex-col border-r border-slate-800/80 bg-[#0B0F1A] lg:bg-[#0B0F1A]/80 backdrop-blur-xl transition-all duration-300 ease-in-out",
             "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
@@ -1276,7 +1511,7 @@ export default function Dashboard() {
                   <Icon.Shield className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div className="text-[28px] font-black mono text-emerald-400 leading-none mt-3">{appliedPatches}</div>
-                <div className="text-[11px] text-slate-500 mt-1">Zero-human intervention</div>
+                <div className="text-[11px] text-slate-500 mt-1">Human-approved remediation</div>
                 <div className="mt-4 flex items-center gap-2">
                   <div className="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
                     <div
@@ -1313,6 +1548,103 @@ export default function Dashboard() {
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Avg run</div>
                   </div>
                 </div>
+              </div>
+            </section>
+
+            <section id="coverage-section" className="rounded-2xl border border-slate-800 bg-[#0F1420] p-5 sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-bold tracking-wide text-white flex items-center gap-2">
+                    <span className="w-1 h-4 rounded-full bg-indigo-500" />
+                    Attack Surface Coverage
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Eight-vector taxonomy · <span className="mono">{coverageTargetLabel}</span> · clean ≠ untested
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 mono text-[11px]">
+                  <span
+                    className={cn(
+                      "px-2.5 py-1 rounded-full border font-bold",
+                      activeCoverage?.complete
+                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                        : "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                    )}
+                  >
+                    {activeCoverage?.conclusive ?? 0}/8 conclusive
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300">
+                    {activeCoverage?.coverage_percent ?? 0}%
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
+                {coverageVectors.map((v) => {
+                  const meta = COVERAGE_META[v.status];
+                  const scen = SCENARIOS[v.key];
+                  const linkedEpisode = v.last_episode_id
+                    ? episodes.find((e) => e.id === v.last_episode_id)
+                    : undefined;
+                  return (
+                    <button
+                      key={v.key}
+                      type="button"
+                      onClick={() => {
+                        const ep = v.last_episode_id
+                          ? episodes.find((e) => e.id === v.last_episode_id)
+                          : undefined;
+                        if (ep) setActiveInspector(ep);
+                      }}
+                      className={cn(
+                        "rounded-xl border p-3 text-left transition-colors",
+                        meta.tile,
+                        linkedEpisode ? "hover:border-slate-500" : "cursor-default"
+                      )}
+                      title={
+                        linkedEpisode
+                          ? `${scen?.label ?? v.key}: ${meta.label} (${v.attempts} probe${v.attempts === 1 ? "" : "s"}) — click to inspect`
+                          : `${scen?.label ?? v.key}: ${meta.label} (no completed probe yet)`
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-bold text-slate-200 truncate">{scen?.short ?? v.key}</span>
+                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", meta.dot)} />
+                      </div>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 mt-1.5 px-1.5 py-0.5 rounded border text-[10px] font-bold mono",
+                          meta.badge
+                        )}
+                      >
+                        {meta.label}
+                      </span>
+                      <div className="text-[10px] mono text-slate-600 mt-1">
+                        {v.attempts} {v.attempts === 1 ? "probe" : "probes"}
+                        {v.evidence_present ? " · evidence" : ""}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-[10px] mono text-slate-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> clean {coverageCounts.clean}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> vulnerable {coverageCounts.vulnerable}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> mitigated {coverageCounts.mitigated}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> inconclusive {coverageCounts.inconclusive}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-600" /> untested {coverageCounts.not_run}
+                </span>
+                <span className="ml-auto hidden sm:inline">Conclusive = clean + vulnerable + mitigated · untested is not clean</span>
               </div>
             </section>
 
@@ -1399,7 +1731,9 @@ export default function Dashboard() {
                       </div>
                       <div className="text-right">
                         <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Coverage</div>
-                        <div className="mono text-sm font-bold text-white">{Object.keys(SCENARIOS).length} vectors</div>
+                        <div className="mono text-sm font-bold text-white">
+                          {activeCoverage ? `${activeCoverage.conclusive}/8 conclusive` : "0/8 conclusive"}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1447,13 +1781,24 @@ export default function Dashboard() {
                         <span
                           className={cn(
                             "px-2.5 py-1 rounded-full border text-[11px] font-bold mono",
-                            activeInspector.threat_flag
-                              ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
-                              : "bg-slate-800 border-slate-700 text-slate-400"
+                            inspectorThreat?.badge
                           )}
                         >
-                          {activeInspector.threat_flag ? "⚑ THREAT CONFIRMED" : "✓ CLEAN"}
+                          {activeInspector.threat_flag ? "⚑ " : ""}
+                          {inspectorThreat?.label.toUpperCase()}
                         </span>
+                        {inspectorOutcome && (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold mono",
+                              inspectorOutcome.badge
+                            )}
+                            title="Episode execution outcome (Wave 0 vocabulary)"
+                          >
+                            <span className={cn("w-1.5 h-1.5 rounded-full", inspectorOutcome.dot)} />
+                            {inspectorOutcome.label.toUpperCase()}
+                          </span>
+                        )}
                         <span className="px-2.5 py-1 rounded-full bg-[#0E1626] border border-[#1E293B] mono text-[11px] font-bold text-white">
                           SCORE {activeInspector.score}
                         </span>
@@ -1535,6 +1880,108 @@ export default function Dashboard() {
                             ) : (
                               <div className="px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 mono text-xs text-slate-500">
                                 {activeInspector.pr_url}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {activeInspector.evidence && (
+                          <div className="rounded-xl border border-slate-800 overflow-hidden">
+                            <button
+                              onClick={() => setShowEvidence((v) => !v)}
+                              className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-900/50 hover:bg-slate-900 transition-colors"
+                            >
+                              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400 flex items-center gap-2">
+                                <Icon.Shield className="w-3.5 h-3.5" />
+                                Evidence Artifact
+                                <span
+                                  className={cn(
+                                    "mono text-[10px] px-1.5 py-0.5 rounded border",
+                                    activeInspector.evidence.complete
+                                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                                      : "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                                  )}
+                                >
+                                  {activeInspector.evidence.complete ? "COMPLETE" : "PARTIAL"}
+                                </span>
+                              </span>
+                              <Icon.Chevron className={cn("w-4 h-4 text-slate-500 transition-transform", showEvidence && "rotate-180")} />
+                            </button>
+                            {showEvidence && (
+                              <div className="bg-[#06080F] border-t border-slate-800 p-3 space-y-3">
+                                <div>
+                                  <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1">Request</div>
+                                  <div className="rounded-lg bg-[#0E1626] border border-slate-800 p-2.5 mono text-[11px] text-cyan-300 break-all">
+                                    <div>
+                                      <span className="text-slate-500">
+                                        {activeInspector.evidence.request?.method || activeInspector.http_method || "GET"}
+                                      </span>{" "}
+                                      {activeInspector.evidence.request?.url || activeInspector.target}
+                                    </div>
+                                    {activeInspector.evidence.request?.payload ? (
+                                      <pre className="whitespace-pre-wrap break-all text-slate-300 mt-1">
+                                        {activeInspector.evidence.request.payload}
+                                      </pre>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Response</div>
+                                    <div className="mono text-[10px] text-slate-500">
+                                      HTTP {activeInspector.evidence.response?.status ?? "—"}
+                                      {activeInspector.evidence.response?.latency_ms != null
+                                        ? ` · ${activeInspector.evidence.response.latency_ms}ms`
+                                        : ""}
+                                    </div>
+                                  </div>
+                                  <div className="rounded-lg bg-[#0E1626] border border-slate-800 p-2.5">
+                                    <pre className="whitespace-pre-wrap break-all mono text-[11px] text-slate-300 max-h-[140px] overflow-auto custom-scrollbar">
+                                      {activeInspector.evidence.response?.body_excerpt || "(empty body)"}
+                                    </pre>
+                                    {activeInspector.evidence.response?.body_sha256 && (
+                                      <div className="mt-2 pt-2 border-t border-slate-800 mono text-[10px] text-slate-500 break-all">
+                                        SHA-256 {activeInspector.evidence.response.body_sha256}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="rounded-lg bg-[#0E1626] border border-slate-800 p-2.5">
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Confidence</div>
+                                    <div className="mono text-sm font-bold text-white mt-1">
+                                      {typeof activeInspector.evidence.confidence === "number"
+                                        ? `${Math.round(activeInspector.evidence.confidence * 100)}%`
+                                        : "—"}
+                                    </div>
+                                    <div className="text-[10px] mono text-slate-600">
+                                      {activeInspector.evidence.confidence_source || "unknown"}
+                                    </div>
+                                  </div>
+                                  <div className="rounded-lg bg-[#0E1626] border border-slate-800 p-2.5">
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Re-Test</div>
+                                    <div className="mono text-sm font-bold mt-1 text-slate-300">
+                                      {activeInspector.evidence.retest?.status ?? activeInspector.retest_status ?? "—"}
+                                    </div>
+                                    <div className="text-[10px] mono text-slate-600">sandbox verification</div>
+                                  </div>
+                                </div>
+
+                                {activeInspector.evidence.confidence_rationale && (
+                                  <p className="text-[11px] leading-relaxed text-slate-400">
+                                    {activeInspector.evidence.confidence_rationale}
+                                  </p>
+                                )}
+
+                                {activeInspector.evidence.limitations && activeInspector.evidence.limitations.length > 0 && (
+                                  <ul className="text-[10px] leading-relaxed text-slate-500 list-disc pl-4 space-y-0.5">
+                                    {activeInspector.evidence.limitations.map((l, i) => (
+                                      <li key={i}>{l}</li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1655,6 +2102,7 @@ export default function Dashboard() {
                       <th className="py-3 px-4 whitespace-nowrap">Target</th>
                       <th className="py-3 px-4 whitespace-nowrap text-center">Init</th>
                       <th className="py-3 px-4 whitespace-nowrap text-center">Threat</th>
+                      <th className="py-3 px-4 whitespace-nowrap text-center">Outcome</th>
                       <th className="py-3 px-4 whitespace-nowrap text-center">Auto-Patch</th>
                       <th className="py-3 px-4 whitespace-nowrap text-center">Re-Test</th>
                       <th className="py-3 px-4 whitespace-nowrap text-center">Score</th>
@@ -1674,14 +2122,14 @@ export default function Dashboard() {
                           <td className="py-4 px-4">
                             <div className="h-3 w-40 bg-slate-800 rounded" />
                           </td>
-                          <td colSpan={6} className="py-4 px-4">
+                          <td colSpan={7} className="py-4 px-4">
                             <div className="h-3 w-full bg-slate-800 rounded" />
                           </td>
                         </tr>
                       ))
                     ) : filteredEpisodes.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-16 text-center">
+                        <td colSpan={10} className="py-16 text-center">
                           <div className="max-w-sm mx-auto">
                             <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-900 border border-slate-800 grid place-items-center text-slate-600">
                               <Icon.Search className="w-6 h-6" />
@@ -1711,6 +2159,8 @@ export default function Dashboard() {
                         const atkKey = normalizeAttackKey(ep.attack_type);
                         const scen = atkKey ? SCENARIOS[atkKey] : undefined;
                         const displayLabel = (ep as any).attack_label || scen?.label || ep.attack_type;
+                        const threat = threatStateFor(ep);
+                        const outcome = outcomeFor(ep);
                         return (
                           <tr
                             key={ep.id}
@@ -1768,13 +2218,23 @@ export default function Dashboard() {
                               <span
                                 className={cn(
                                   "inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold mono",
-                                  ep.threat_flag
-                                    ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
-                                    : "bg-slate-900 border-slate-800 text-slate-500"
+                                  threat.badge
                                 )}
                               >
-                                <span className={cn("w-1.5 h-1.5 rounded-full", ep.threat_flag ? "bg-amber-400" : "bg-slate-600")} />
-                                {ep.threat_flag ? "Detected" : "Clean"}
+                                <span className={cn("w-1.5 h-1.5 rounded-full", threat.dot)} />
+                                {threat.label}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold mono",
+                                  outcome.badge
+                                )}
+                                title="Episode execution outcome"
+                              >
+                                <span className={cn("w-1.5 h-1.5 rounded-full", outcome.dot)} />
+                                {outcome.label}
                               </span>
                             </td>
                             <td className="py-3.5 px-4 text-center">
@@ -1843,7 +2303,7 @@ export default function Dashboard() {
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] mono text-slate-600 border-t border-slate-800/60 pt-6">
               <span>
-                © 2026 {BRAND.name} — Autonomous Security Operations Platform · Continuous loop v2.4 · SOC 2 Compliant
+                © 2026 {BRAND.name} — Autonomous Security Operations Platform · Continuous loop v2.4 · Continuous audit, not a certification
               </span>
               <span className="flex items-center gap-2">
                 <span className="px-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-500">API: {API_DISPLAY}</span>
