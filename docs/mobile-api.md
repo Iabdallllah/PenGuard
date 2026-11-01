@@ -65,8 +65,8 @@ This document defines the client-server contract between the PenGuard mobile app
   "pr_url": "https://github.com/Iabdallllah/PenGuard/pull/4",
   "review_url": "https://github.com/Iabdallllah/PenGuard/pull/4#pullrequestreview-123"
 }
-// 404 unknown id · 409 still running or no PR attached (only XSS yields real
-// PRs) · 503 GitHub not configured · 502 review call failed. Idempotent.
+// 404 unknown id · 409 still running or no PR attached (PR creation requires
+// GitHub credentials) · 503 GitHub not configured · 502 review call failed. Idempotent.
 ```
 
 ### Security Posture (`GET /api/posture`)

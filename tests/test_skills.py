@@ -81,3 +81,42 @@ def test_disabled_skills_preserve_builtin_fallback(monkeypatch):
 
 def test_skill_lookup_unknown_scenario_returns_none():
     assert vector_skills.skill_for("not-a-vector") is None
+
+
+def test_every_skill_carries_strix_playbook_metadata():
+    skills = vector_skills.load_skills()
+    for key, skill in skills.items():
+        playbook = vector_skills.skill_playbook(skill)
+        assert playbook["skill_id"].startswith("penguard-")
+        assert playbook["tactics_applied"]
+        assert playbook["verification_rule"]
+        assert playbook["source_file"].endswith(".md")
+        assert skill.get("baseline_endpoint", "").startswith("/")
+        assert str(skill.get("baseline_method", "")).upper() in ("GET", "POST")
+
+
+def test_enabled_plan_exposes_playbook_metadata(monkeypatch):
+    monkeypatch.setattr(config, "VECTOR_SKILLS_ENABLED", True)
+    for scenario in ("idor", "sql_injection", "business_logic", "xss",
+                     "csrf", "ssrf", "broken_auth", "misconfig"):
+        plan = orch._fallback_attack_plan(scenario, "http://x", "")
+        playbook = plan["skill_playbook"]
+        assert playbook["skill_id"] == f"penguard-{scenario.replace('_', '-')}-v1"
+        assert "baseline" in playbook["tactics_applied"]
+        assert playbook["verification_rule"]
+
+
+def test_skill_prompt_context_includes_verification_and_baseline():
+    skills = vector_skills.load_skills()
+    context = vector_skills.skill_prompt_context(skills["xss"])
+    assert "penguard-xss-v1" in context
+    assert "Verification rule:" in context
+    assert "Benign baseline probe:" in context
+    assert "/api/search?q=hello" in context
+
+
+def test_disabled_skills_omit_playbook_metadata(monkeypatch):
+    monkeypatch.setattr(config, "VECTOR_SKILLS_ENABLED", False)
+    plan = orch._fallback_attack_plan("xss", "http://x", "")
+    assert "skill_playbook" not in plan
+    assert plan["target_endpoint"] == "http://x/api/search?q=%3Cscript%3Ealert('xss')%3C/script%3E"

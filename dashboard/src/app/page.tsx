@@ -72,6 +72,54 @@ interface EvidenceArtifact {
     body_excerpt?: string;
     body_sha256?: string | null;
     body_length?: number;
+    latency_ms?: number | null;
+    outcome?: string;
+  };
+  baseline?: {
+    request?: {
+      method?: string;
+      url?: string;
+      payload?: string;
+    };
+    status?: number | null;
+    headers?: Record<string, string>;
+    body_excerpt?: string;
+    body_sha256?: string | null;
+    body_length?: number;
+    latency_ms?: number | null;
+    outcome?: string;
+  };
+  differential_analysis?: {
+    baseline_status?: number | null;
+    exploit_status?: number | null;
+    retest_status?: number | null;
+    behavior_delta?: string;
+    exploit_to_retest?: string;
+    causality_confirmed?: boolean;
+    zero_false_positive?: boolean;
+    false_positive_risk?: string;
+    mitigation_verified?: boolean;
+    interpretation?: string;
+  };
+  skill_playbook?: {
+    skill_id?: string;
+    label?: string;
+    source_file?: string;
+    tactics_applied?: string[];
+    verification_rule?: string;
+    baseline_rule?: string;
+    exploit_rule?: string;
+    owasp?: string;
+  };
+  remediation?: {
+    engine?: string;
+    scenario?: string;
+    function?: string;
+    applied?: boolean;
+    ast_verified?: boolean;
+    transformed_nodes?: string[];
+    patch_sha256?: string;
+    fallback_reason?: string;
   };
   confidence?: number | null;
   confidence_source?: string;
@@ -105,6 +153,9 @@ interface Episode {
   http_method?: string;
   confidence?: number | null;
   evidence?: EvidenceArtifact | null;
+  skill_playbook?: EvidenceArtifact["skill_playbook"];
+  remediation_metadata?: EvidenceArtifact["remediation"];
+  baseline_status?: number | null;
   approved?: boolean;
   recon_data?: any;
   detection_report?: any;
@@ -869,6 +920,11 @@ export default function Dashboard() {
   );
   const inspectorOutcome = activeInspector ? outcomeFor(activeInspector) : null;
   const inspectorThreat = activeInspector ? threatStateFor(activeInspector) : null;
+  const inspectorSkill =
+    activeInspector?.evidence?.skill_playbook ?? activeInspector?.skill_playbook ?? null;
+  const inspectorRemediation =
+    activeInspector?.evidence?.remediation ?? activeInspector?.remediation_metadata ?? null;
+  const inspectorDiff = activeInspector?.evidence?.differential_analysis ?? null;
 
   const filteredEpisodes = useMemo(() => {
     let list = [...episodes].reverse();
@@ -1968,6 +2024,132 @@ export default function Dashboard() {
                                     <div className="text-[10px] mono text-slate-600">sandbox verification</div>
                                   </div>
                                 </div>
+
+                                {inspectorDiff && (
+                                  <div className="rounded-lg border border-slate-800 bg-[#0E1626] p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">
+                                        Differential Probe
+                                      </div>
+                                      <span
+                                        className={cn(
+                                          "mono text-[10px] px-1.5 py-0.5 rounded border",
+                                          inspectorDiff.causality_confirmed
+                                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                                            : "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                                        )}
+                                      >
+                                        {inspectorDiff.causality_confirmed ? "CAUSALITY CONFIRMED" : "UNCONFIRMED"}
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 mt-2">
+                                      <div>
+                                        <div className="text-[9px] uppercase tracking-widest text-slate-600">Baseline</div>
+                                        <div className="mono text-sm font-bold text-slate-300">
+                                          {inspectorDiff.baseline_status ?? "—"}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[9px] uppercase tracking-widest text-slate-600">Exploit</div>
+                                        <div className="mono text-sm font-bold text-rose-300">
+                                          {inspectorDiff.exploit_status ?? "—"}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[9px] uppercase tracking-widest text-slate-600">Re-test</div>
+                                        <div
+                                          className={cn(
+                                            "mono text-sm font-bold",
+                                            inspectorDiff.mitigation_verified ? "text-emerald-400" : "text-slate-300"
+                                          )}
+                                        >
+                                          {inspectorDiff.retest_status ?? "—"}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 mono text-[10px] text-slate-500">
+                                      delta={inspectorDiff.behavior_delta || "unknown"} · fp-risk=
+                                      {inspectorDiff.false_positive_risk || "unconfirmed"} · retest=
+                                      {inspectorDiff.exploit_to_retest || "not_retested"}
+                                    </div>
+                                    {inspectorDiff.interpretation && (
+                                      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                                        {inspectorDiff.interpretation}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {inspectorSkill && (
+                                  <div className="rounded-lg border border-slate-800 bg-[#0E1626] p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">
+                                        Strix Vector Skill
+                                      </div>
+                                      <span className="mono text-[10px] text-cyan-300">
+                                        {inspectorSkill.skill_id || "—"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                      {(inspectorSkill.tactics_applied || []).map((tactic) => (
+                                        <span
+                                          key={tactic}
+                                          className="mono text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-300"
+                                        >
+                                          {tactic}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    {inspectorSkill.verification_rule && (
+                                      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                                        <span className="text-slate-400">verify:</span> {inspectorSkill.verification_rule}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {inspectorRemediation && (
+                                  <div className="rounded-lg border border-slate-800 bg-[#0E1626] p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">
+                                        AST Remediation
+                                      </div>
+                                      <span
+                                        className={cn(
+                                          "mono text-[10px] px-1.5 py-0.5 rounded border",
+                                          inspectorRemediation.ast_verified
+                                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                                            : "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                                        )}
+                                      >
+                                        {inspectorRemediation.ast_verified ? "AST VERIFIED" : "FALLBACK"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 mono text-[10px] text-slate-500 break-all">
+                                      {inspectorRemediation.function || inspectorRemediation.scenario || "—"}
+                                      {inspectorRemediation.patch_sha256
+                                        ? ` · sha256 ${inspectorRemediation.patch_sha256.slice(0, 12)}…`
+                                        : ""}
+                                    </div>
+                                    {inspectorRemediation.transformed_nodes && inspectorRemediation.transformed_nodes.length > 0 && (
+                                      <div className="mt-1.5 flex flex-wrap gap-1">
+                                        {inspectorRemediation.transformed_nodes.map((node) => (
+                                          <span
+                                            key={node}
+                                            className="mono text-[9px] px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400"
+                                          >
+                                            {node}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {inspectorRemediation.fallback_reason && (
+                                      <p className="mt-1.5 mono text-[10px] text-amber-400">
+                                        fallback: {inspectorRemediation.fallback_reason}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
 
                                 {activeInspector.evidence.confidence_rationale && (
                                   <p className="text-[11px] leading-relaxed text-slate-400">

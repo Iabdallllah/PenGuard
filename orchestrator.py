@@ -152,24 +152,117 @@ def _fallback_recon(scenario: str):
     else:
         return {"target_surface": "/api/user/102", "suspected_vulnerability": "IDOR", "target_parameter": "user_id", "recon_notes": "Direct object identifier parameter"}
 
+def _active_skill(scenario: str):
+    """Return the validated vector skill when playbooks are enabled."""
+    if not config.VECTOR_SKILLS_ENABLED:
+        return None
+    try:
+        from vector_skills import skill_for
+        return skill_for(scenario)
+    except Exception as e:
+        print(f"[skills] lookup failed, using built-in plan: {e}")
+        return None
+
+
+def _playbook_metadata(skill) -> Optional[Dict[str, Any]]:
+    if not skill:
+        return None
+    try:
+        from vector_skills import skill_playbook
+        return skill_playbook(skill)
+    except Exception as e:
+        print(f"[skills] metadata failed: {e}")
+        return None
+
+
+def _skill_prompt(skill) -> str:
+    if not skill:
+        return ""
+    try:
+        from vector_skills import skill_prompt_context
+        return skill_prompt_context(skill)
+    except Exception:
+        return ""
+
+
+DEFAULT_BASELINE_PROBES = {
+    "idor": {"endpoint": "/api/user/101", "method": "GET", "payload_json": None},
+    "sql_injection": {"endpoint": "/api/records?query=checkup", "method": "GET", "payload_json": None},
+    "business_logic": {
+        "endpoint": "/api/checkout", "method": "POST",
+        "payload_json": json.dumps({"item_id": "license_pro", "quantity": 1, "unit_price": 250.0}),
+    },
+    "xss": {"endpoint": "/api/search?q=hello", "method": "GET", "payload_json": None},
+    "csrf": {
+        "endpoint": "/api/transfer", "method": "POST",
+        "payload_json": json.dumps({"to": "friend", "amount": 10}),
+    },
+    "ssrf": {"endpoint": "/api/fetch?url=https://example.com", "method": "GET", "payload_json": None},
+    "broken_auth": {
+        "endpoint": "/api/login", "method": "POST",
+        "payload_json": json.dumps({"username": "alice", "password": "alice123"}),
+    },
+    "misconfig": {"endpoint": "/", "method": "GET", "payload_json": None},
+}
+
+
+def _baseline_probe_plan(scenario: str, base_url: str, skill=None) -> Dict[str, Any]:
+    """Build the benign control request paired with the exploit probe."""
+    if skill and skill.get("baseline_endpoint"):
+        endpoint = str(skill["baseline_endpoint"])
+        method = str(skill.get("baseline_method") or skill.get("method") or "GET").upper()
+        payload = skill.get("baseline_payload_json")
+    else:
+        spec = DEFAULT_BASELINE_PROBES.get(scenario, DEFAULT_BASELINE_PROBES["idor"])
+        endpoint = str(spec["endpoint"])
+        method = str(spec["method"]).upper()
+        payload = spec.get("payload_json")
+    base = (base_url or "").rstrip("/")
+    target = base + endpoint if endpoint.startswith("/") else endpoint
+    return {
+        "http_method": method,
+        "target_endpoint": target,
+        "payload_json": payload,
+        "purpose": "benign-baseline",
+    }
+
+
+def _http_probe(plan: Dict[str, Any]):
+    """Execute one probe; never raises. Returns status, body, headers, latency."""
+    headers = {"Content-Type": "application/json"}
+    started = time.perf_counter()
+    try:
+        if str(plan.get("http_method", "GET")).upper() == "POST":
+            payload = json.loads(plan.get("payload_json")) if plan.get("payload_json") else {}
+            resp = requests.post(
+                plan["target_endpoint"], json=payload, headers=headers,
+                timeout=config.TARGET_HTTP_TIMEOUT_SECONDS,
+            )
+        else:
+            resp = requests.get(
+                plan["target_endpoint"], timeout=config.TARGET_HTTP_TIMEOUT_SECONDS,
+            )
+        latency = round((time.perf_counter() - started) * 1000, 1)
+        return resp.status_code, resp.text, dict(resp.headers), latency, headers
+    except Exception as e:
+        latency = round((time.perf_counter() - started) * 1000, 1)
+        return 0, f"Request failed: {e}", {}, latency, headers
+
+
 def _fallback_attack_plan(scenario: str, base_url: str, vuln: str):
-    # Optional declarative vector skills (validated; off by default). The
-    # deterministic branch below remains authoritative when the flag is off and
-    # is golden-tested for parity with the enabled path.
-    if config.VECTOR_SKILLS_ENABLED:
-        try:
-            from vector_skills import skill_for
-            skill = skill_for(scenario)
-            if skill:
-                return {
-                    "vulnerability_target": skill["vulnerability_target"],
-                    "target_endpoint": f"{base_url}{skill['endpoint']}",
-                    "http_method": skill["method"],
-                    "payload_json": skill.get("payload_json"),
-                    "hypothesis": skill.get("hypothesis") or "",
-                }
-        except Exception as e:
-            print(f"[skills] fallback to built-in plan: {e}")
+    # Validated vector skills (active by default) enrich the deterministic plan
+    # with playbook metadata. The endpoint contracts remain golden-tested.
+    skill = _active_skill(scenario)
+    playbook = _playbook_metadata(skill)
+    if skill:
+        return {
+            "vulnerability_target": skill["vulnerability_target"],
+            "target_endpoint": f"{base_url}{skill['endpoint']}",
+            "http_method": skill["method"],
+            "payload_json": skill.get("payload_json"),
+            "hypothesis": skill.get("hypothesis") or "",
+            "skill_playbook": playbook,
+        }
     # vuln is from recon suspected_vulnerability
     if vuln == "SQL Injection" or scenario == "sql_injection":
         return {
@@ -359,15 +452,28 @@ class EpisodeState(TypedDict):
     past_memory: str
     recon_data: Optional[Dict[str, Any]]
     attack_plan: Optional[Dict[str, Any]]
+    skill_playbook: Optional[Dict[str, Any]]
     http_status: Optional[int]
     response_body: Optional[str]
+    response_headers: Optional[Dict[str, Any]]
+    request_headers: Optional[Dict[str, Any]]
+    probe_latency_ms: Optional[float]
+    baseline_request: Optional[Dict[str, Any]]
+    baseline_status: Optional[int]
+    baseline_response_body: Optional[str]
+    baseline_response_headers: Optional[Dict[str, Any]]
+    baseline_latency_ms: Optional[float]
     detection_report: Optional[Dict[str, Any]]
     hardening_plan: Optional[Dict[str, Any]]
     threat_detected: Optional[bool]
     vulnerability_type: Optional[str]
     remediation: Optional[str]
+    remediation_metadata: Optional[Dict[str, Any]]
     patch_applied: Optional[bool]
     retest_status: Optional[int]
+    retest_response_body: Optional[str]
+    retest_response_headers: Optional[Dict[str, Any]]
+    retest_latency_ms: Optional[float]
     posture_score: Optional[float]
     pr_url: Optional[str]
     pr_verdict_url: Optional[str]
@@ -596,6 +702,8 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
     recon = state["recon_data"]
     scenario = state.get("scenario", "idor")
     vuln = recon.get("suspected_vulnerability", "IDOR")
+    skill = _active_skill(scenario)
+    playbook = _playbook_metadata(skill)
 
     # prepare fallback plan immediately
     fallback_plan = _fallback_attack_plan(scenario, state["target_url"], vuln)
@@ -669,7 +777,8 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
             )
         try:
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are an automated Security Test Formulation Agent (Red Agent 2). " + instruction),
+                ("system", "You are an automated Security Test Formulation Agent (Red Agent 2). "
+                           + instruction + " " + _skill_prompt(skill)),
                 ("human", "Recon Data: {recon}\nBase URL: {base_url}\nGenerate validation request plan:")
             ])
             structured_exec = _configured_llm().with_structured_output(AttackPlan)
@@ -679,29 +788,32 @@ def red_execution_agent(state: EpisodeState) -> Dict[str, Any]:
                 "base_url": state["target_url"]
             }))
             plan_dict = plan_obj.model_dump()
+            if playbook:
+                plan_dict.setdefault("skill_playbook", playbook)
         except Exception as e:
             print(f"[execution] LLM failed, using fallback: {e}")
             plan_dict = fallback_plan
 
-    # Execute HTTP request with timeouts and error handling
-    headers = {"Content-Type": "application/json"}
-    try:
-        if plan_dict["http_method"].upper() == "POST":
-            payload = json.loads(plan_dict["payload_json"]) if plan_dict.get("payload_json") else {}
-            resp = requests.post(plan_dict["target_endpoint"], json=payload, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
-        else:
-            resp = requests.get(plan_dict["target_endpoint"], timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
-        status = resp.status_code
-        body = resp.text
-    except Exception as e:
-        print(f"[execution] request failed: {e}")
-        status = 0
-        body = f"Request failed: {e}"
+    # Execute the exploit probe first, then the benign baseline control. Both
+    # use the same transport and timeout so the differential is apples-to-apples.
+    status, body, resp_headers, latency, req_headers = _http_probe(plan_dict)
+
+    baseline_plan = _baseline_probe_plan(scenario, state["target_url"], skill)
+    baseline_status, baseline_body, baseline_headers, baseline_latency, _ = _http_probe(baseline_plan)
 
     return {
         "attack_plan": plan_dict,
+        "skill_playbook": playbook or plan_dict.get("skill_playbook"),
         "http_status": status,
-        "response_body": body
+        "response_body": body,
+        "response_headers": resp_headers,
+        "request_headers": req_headers,
+        "probe_latency_ms": latency,
+        "baseline_request": baseline_plan,
+        "baseline_status": baseline_status,
+        "baseline_response_body": baseline_body,
+        "baseline_response_headers": baseline_headers,
+        "baseline_latency_ms": baseline_latency,
     }
 
 def blue_detection_agent(state: EpisodeState) -> Dict[str, Any]:
@@ -825,20 +937,20 @@ def blue_hardening_agent(state: EpisodeState) -> Dict[str, Any]:
 
 def retest_node(state: EpisodeState) -> Dict[str, Any]:
     retest_status = None
+    retest_body = None
+    retest_headers: Optional[Dict[str, Any]] = None
+    retest_latency = None
     if state.get("patch_applied"):
         plan = state["attack_plan"]
-        headers = {"Content-Type": "application/json"}
-        try:
-            if plan["http_method"].upper() == "POST":
-                payload = json.loads(plan["payload_json"]) if plan.get("payload_json") else {}
-                resp = requests.post(plan["target_endpoint"], json=payload, headers=headers, timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
-            else:
-                resp = requests.get(plan["target_endpoint"], timeout=config.TARGET_HTTP_TIMEOUT_SECONDS)
-            retest_status = resp.status_code
-        except Exception as e:
-            print(f"[retest] failed: {e}")
-            retest_status = 0
-    return {"retest_status": retest_status}
+        retest_status, retest_body, retest_headers, retest_latency, _ = _http_probe(plan)
+        if retest_status == 0:
+            print(f"[retest] failed: {retest_body}")
+    return {
+        "retest_status": retest_status,
+        "retest_response_body": retest_body,
+        "retest_response_headers": retest_headers,
+        "retest_latency_ms": retest_latency,
+    }
 
 def reflection_prep_node(state: EpisodeState) -> Dict[str, Any]:
     """Bounded self-reflection: turn a failed retest into feedback for the next
@@ -886,38 +998,48 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
     except Exception as e:
         print(f"[storage] memory store failed: {e}")
 
-    # Git-Native PR for XSS (Step 1) — via GitHub API (zero storage/memory)
+    # Deterministic AST remediation for the detected vector. The patch is only
+    # offered to GitHub after a successful ast.parse round-trip; otherwise the
+    # metadata records the safe fallback honestly.
     pr_url = None
     pr_verdict_url = None
-    if state.get("threat_detected") and state.get("vulnerability_type") == "XSS":
+    remediation_metadata: Optional[Dict[str, Any]] = None
+    if state.get("threat_detected"):
+        scenario_key = str(state.get("scenario") or "")
         try:
-            from remediator import create_security_pr, generate_xss_patch
-            # Read local vulnerable snippet for LLM context
-            vuln_code = ""
-            try:
+            from remediator import SCENARIO_FUNCTIONS, create_security_pr, remediate_source
+            if scenario_key in SCENARIO_FUNCTIONS:
                 with open("target_app.py", encoding="utf-8") as f:
-                    txt = f.read()
-                    # Extract search_xss function
-                    start = txt.find('@app.get("/api/search")')
-                    if start != -1:
-                        end = txt.find("\n@app.", start + 1)
-                        vuln_code = txt[start:end if end != -1 else start + 800]
-                    else:
-                        vuln_code = txt[:800]
-            except Exception as e:
-                print(f"[pr] read local file failed: {e}")
-                vuln_code = 'def search_xss(q: str = ""): return {"html": f"<div>{q}</div>"}'
-            patched = generate_xss_patch(vuln_code)
-            pr_url = create_security_pr(
-                file_path="target_app.py",
-                patched_code=patched,
-                vuln_name="XSS",
-                episode_id=state["episode_id"],
-            )
-            print(f"[pr] result: {pr_url}")
+                    target_source = f.read()
+                ast_result = remediate_source(scenario_key, target_source)
+                remediation_metadata = {
+                    key: value for key, value in ast_result.items() if key != "patch"
+                }
+                if remediation_metadata.get("applied") and remediation_metadata.get("ast_verified"):
+                    labels = ", ".join(remediation_metadata.get("transformed_nodes") or [])
+                    validation_note = (
+                        f"Python AST transformation of `{remediation_metadata.get('function')}`; "
+                        f"`ast.parse` validation passed; nodes: {labels}."
+                    )
+                    pr_url = create_security_pr(
+                        file_path="target_app.py",
+                        patched_code=ast_result["patch"],
+                        vuln_name=state.get("vulnerability_type") or scenario_key,
+                        episode_id=state["episode_id"],
+                        validation_note=validation_note,
+                    )
+                    print(f"[pr] result: {pr_url}")
         except Exception as e:
-            print(f"[pr] failed: {e}")
-            pr_url = f"PR Failed: {e}"
+            print(f"[pr] AST remediation failed: {e}")
+            remediation_metadata = {
+                "engine": "python-ast",
+                "scenario": scenario_key,
+                "applied": False,
+                "ast_verified": False,
+                "transformed_nodes": [],
+                "fallback_reason": "remediation-error",
+                "error": str(e),
+            }
 
     # Autonomous verdict: comment the sandbox re-test outcome on the real PR
     if (pr_url or "").startswith("http"):
@@ -956,6 +1078,7 @@ def scoring_and_storage_node(state: EpisodeState) -> Dict[str, Any]:
     }
 
     return {"posture_score": score, "outcome": outcome, "pr_url": pr_url, "pr_verdict_url": pr_verdict_url,
+            "remediation_metadata": remediation_metadata,
             "llm_prompt_tokens": pt, "llm_completion_tokens": ct,
             "inference_metrics": inference_metrics}
 

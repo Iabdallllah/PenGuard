@@ -70,7 +70,7 @@ Completed in this pass:
 3. **Honest timeout outcomes** — `EpisodeTimeout`; a timed-out episode is recorded `run_status="timeout"`, `outcome="interrupted"`, `score=0.0` with a "never clean" log line.
 4. **Token / cost limits** — `BudgetExceeded` raised before any LLM call; exceeding marks `budget_limited` and scores 0; token cap and measured-cost cap (cost computed only from configured prices, never invented).
 5. **Centralized configuration** — `config.py` is the single read path for security-relevant environment settings.
-6. **Validated Markdown vector skills** — `vector_skills.py` with strict validation, fail-closed when `PENGUARD_VECTOR_SKILLS=1` and invalid, warn-only when disabled; golden fallback tests preserve deterministic behavior.
+6. **Validated Markdown vector skills** — `vector_skills.py` with strict validation, active by default (`PENGUARD_VECTOR_SKILLS_ENABLED=false` disables), fail-closed when enabled and invalid; golden fallback tests preserve deterministic behavior.
 
 ## 3. Completion-pass changes (2026-10-31)
 
@@ -97,14 +97,22 @@ Completed in this pass:
 - The raw target URL never appears in the fingerprint, and repeated exports are deterministic.
 - Tests: `tests/test_sarif_fingerprint.py` plus endpoint-level assertions in `tests/test_sarif.py`.
 
+### 3.4 Strix-inspired completion pass (2026-11-01)
+
+- **Real AST remediation** — `remediator.remediate_source()` parses the target module, transforms the detected vector's function via `ast.NodeTransformer`/node inspection, and `ast.unparse`s the result. All eight vectors are covered. Every generated patch must pass `ast.parse`; metadata (`ast_verified`, `transformed_nodes`, `patch_sha256`, `fallback_reason`) flows through episode `remediation_metadata` and `evidence.remediation`. Non-Python input is an explicit, safe no-op rather than a fabricated patch.
+- **Vector skills active by default** — `PENGUARD_VECTOR_SKILLS_ENABLED` defaults to true and can be disabled with `PENGUARD_VECTOR_SKILLS_ENABLED=false` (legacy `PENGUARD_VECTOR_SKILLS` still honored). `skills/vectors/*.md` now carry `skill_id`, `tactics_applied`, `verification_rule`, `baseline_rule`, `exploit_rule`, and baseline-probe fields. Playbooks enrich LLM prompts and deterministic plans; `skill_playbook` is exposed in explainability and evidence.
+- **Differential probing** — each episode captures a benign baseline request alongside the exploit and post-patch re-test, then stores `evidence.differential_analysis` (`baseline_status`, `exploit_status`, `retest_status`, `behavior_delta`, body SHA-256 hashes, `causality_confirmed`, `false_positive_risk`, `mitigation_verified`). Identical baseline/exploit responses are reported as unconfirmed, never as a fabricated zero-false-positive claim.
+- **Dashboard** — the inspector renders differential statuses/causality, skill playbook tactics/verification rule, and AST remediation metadata.
+- **Verification** — 131 tests pass; `ruff check .` clean; `npm run build` in `dashboard/` succeeds.
+
 ## 4. Files changed
 
 Created / completed:
 
 - `dashboard/src/app/api/proxy/[...path]/route.ts` — server-side BFF.
 - `dashboard/.env.example` — server-only dashboard configuration.
-- `evidence.py`, `security_model.py`, `target_scope.py`, `reliability.py`, `vector_skills.py`, `skills/vectors/*.md`.
-- `tests/test_coverage.py`, `test_episode_timeout.py`, `test_findings.py`, `test_golden_fallbacks.py`, `test_reliability.py`, `test_sarif_fingerprint.py`, `test_skills.py`.
+- `evidence.py`, `security_model.py`, `target_scope.py`, `reliability.py`, `vector_skills.py`, `remediator.py`, `skills/vectors/*.md`.
+- `tests/test_coverage.py`, `test_episode_timeout.py`, `test_findings.py`, `test_golden_fallbacks.py`, `test_reliability.py`, `test_sarif_fingerprint.py`, `test_skills.py`, `test_ast_remediation.py`, `test_differential_evidence.py`.
 - `docs/implementation-checklist.md`, `docs/phase1-4-final-report.md`, wave reports.
 
 Modified in the completion pass:
@@ -126,7 +134,7 @@ Preserved untouched: `docs/project-prd.html`, `docs/ui-blueprint.html`, `docs/mo
 2. **Timeout → honest outcome:** a timed-out episode is persisted as `interrupted`/`timeout` with score 0 — never silently clean.
 3. **Budget before LLM:** budget checks precede calls; exceeding marks `budget_limited` and scores 0; cost uses measured tokens × configured prices only.
 4. **Config centralization:** security-relevant env reads live in `config.py`; orchestration paths do not read these knobs directly.
-5. **Skills:** declarative Markdown layer behind a feature flag, strictly validated, parity-gated by golden fallback tests, off by default.
+5. **Skills:** declarative Markdown layer active by default, strictly validated, parity-gated by golden fallback tests, and explicitly disable-able with `PENGUARD_VECTOR_SKILLS_ENABLED=false`.
 6. **BFF:** server-only key holder, fail-closed without a credential; no rewrite in front of it, because array-form rewrites shadow dynamic route handlers.
 7. **SARIF identity:** dedupe keys derive from the stable finding identity, not from mutable messages or raw URLs; legacy rows use a deterministic origin-level fallback.
 8. **UI honesty:** inconclusive/failed executions are "Unproven", never "Clean"; coverage distinguishes untested from clean.
@@ -136,21 +144,24 @@ Preserved untouched: `docs/project-prd.html`, `docs/ui-blueprint.html`, `docs/mo
 Executed in this completion pass:
 
 1. `pytest tests/test_sarif.py tests/test_sarif_fingerprint.py -q` → **11 passed**.
-2. Full suite `pytest tests/ -q` → **110 passed, 2 warnings, 0 failed** (2.76s).
+2. Full suite `pytest tests/ -q` → **131 passed, 2 warnings, 0 failed** (2.77s).
 3. `ruff check .` → **All checks passed**.
 4. `npm run build` in `dashboard/` → **compiled successfully**, TypeScript OK, `ƒ /api/proxy/[...path]` present.
 5. BFF checks: `/api/proxy/api/episodes`, `/api/proxy/api/coverage`, `/api/proxy/api/posture` → **200**.
 6. Browser smoke: coverage panel populated (`8/8 conclusive`, per-vector statuses/attempt counts), `OUTCOME` column present, inspector badge rendered, evidence artifact rendered, **console errors: none**.
 7. Local live episode: `POST /api/proxy/api/episodes/run` (`misconfig`, target `http://127.0.0.1:8001`) → episode `db4918cb`; result **complete / mitigated**, complete evidence, request `GET /api/debug`, response 200, re-test 403, confidence 95% (`heuristic-fallback`).
 8. Regression test added for the DB-backed `/api/episodes` list fields (`outcome`, `finding_key`, `http_method`, `confidence`, `evidence`).
+9. AST remediation tests (`test_ast_remediation.py`) → **4 passed**, covering all eight vectors, syntax validation, and non-Python/no-op fallbacks.
+10. Differential evidence tests (`test_differential_evidence.py`) → **6 passed**, covering causality, identical-response honesty, redaction, metadata passthrough, and baseline probe capture.
+11. `test_skills.py` expanded to **12 passed**, covering playbook metadata, prompt context, and enabled/disabled parity.
 
-Per-suite counts recorded earlier remain valid: `test_reliability.py` 9, `test_golden_fallbacks.py` 27, `test_skills.py` 8, `test_episode_timeout.py` 3 (focused total 47); earlier-wave suites `test_findings`, `test_coverage`, `test_sarif_fingerprint`, `test_posture`, `test_sarif` re-verified passing.
+Per-suite counts recorded earlier remain valid: `test_reliability.py` 9, `test_golden_fallbacks.py` 27, `test_skills.py` 12, `test_episode_timeout.py` 3 (focused total 51); earlier-wave suites `test_findings`, `test_coverage`, `test_sarif_fingerprint`, `test_posture`, `test_sarif`, `test_ast_remediation`, `test_differential_evidence` re-verified passing.
 
 ## 7. Unresolved risks / honest limitations
 
 1. **Live LLM path not exercised.** The local episode used deterministic/heuristic fallback (evidence confidence source: `heuristic-fallback`); no real Groq key was configured for this run. Retry/timeout/budget paths remain unit-validated.
 2. **Docker sandbox start was not exercised in the final run.** A direct target already occupied host port 8001, so the backend fell back to direct HTTP (`[sandbox] container unavailable, fallback to direct ...`). The episode flow and evidence are real, but container networking was not re-verified.
-3. **Vector-skill live flag** (`PENGUARD_VECTOR_SKILLS=1`) is covered by tests only; fail-closed behavior was not exercised against a live deployment.
+3. **Vector-skill default path** is covered by unit tests (metadata + prompt context + enabled/disabled parity); the live deployment was not re-run in this pass, and fail-closed behavior remains startup-validated rather than deployment-exercised.
 4. **SARIF ingestion** was validated for shape, determinism, and fallback in unit tests; it was not uploaded to GitHub code scanning in this environment.
 5. **Deployment E2E** (Vercel + Railway) was not run; local FastAPI + Next.js + target were exercised.
 6. One transient full-suite flake was observed in an earlier pass and resolved by re-run; it was not reproduced in the final runs.
@@ -165,7 +176,7 @@ Backend (Railway/Render):
 - `PENGUARD_TARGET_URL`, `TARGET_URL` as applicable.
 - `PENGUARD_MAX_TOKENS_PER_EPISODE`, `PENGUARD_MAX_COST_USD_PER_EPISODE`, `PENGUARD_PRICE_PER_1K_IN_USD`, `PENGUARD_PRICE_PER_1K_OUT_USD`.
 - `PENGUARD_LLM_TIMEOUT_SECONDS`, `PENGUARD_EPISODE_TIMEOUT_SECONDS`, `PENGUARD_TARGET_HTTP_TIMEOUT_SECONDS`, `PENGUARD_SANDBOX_CONTROL_TIMEOUT_SECONDS`, `PENGUARD_LLM_MAX_ATTEMPTS`, `PENGUARD_LLM_BACKOFF_BASE_SECONDS`.
-- `PENGUARD_VECTOR_SKILLS=0` (default; set `=1` only after golden parity holds).
+- `PENGUARD_VECTOR_SKILLS_ENABLED=true` (default; set `false` to disable Markdown playbooks). Legacy `PENGUARD_VECTOR_SKILLS` is still honored as a fallback.
 
 Dashboard (Vercel):
 
@@ -178,7 +189,7 @@ Database: additive migrations only (startup import applies guarded `ALTER TABLE`
 
 ## 9. Deferred recommendations (not claimed as done)
 
-1. Real AST-based remediation rewrite (libcst/ast) or an honest claim rename — still deferred.
+1. Whole-repository/multi-file AST remediation (current engine transforms the detected vector's function) and automatic CI execution of generated patches.
 2. Live E2E with a real Groq/LLM key.
 3. Upload/verify SARIF in GitHub code scanning.
 4. Deployed Vercel + Railway E2E (including Docker sandbox networking).

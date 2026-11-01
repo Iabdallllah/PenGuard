@@ -133,8 +133,11 @@ MAX_COST_USD_PER_EPISODE = _env_float("PENGUARD_MAX_COST_USD_PER_EPISODE", None)
 PRICE_PER_1K_IN_USD = _env_float("PENGUARD_PRICE_PER_1K_IN_USD", None)
 PRICE_PER_1K_OUT_USD = _env_float("PENGUARD_PRICE_PER_1K_OUT_USD", None)
 
-# ── Optional Markdown vector skills (validated; off by default) ─────────────
-VECTOR_SKILLS_ENABLED = _env_bool("PENGUARD_VECTOR_SKILLS", False)
+# ── Markdown vector skills (validated; active by default) ──────────────────
+# Disable explicitly with PENGUARD_VECTOR_SKILLS_ENABLED=false. The legacy
+# PENGUARD_VECTOR_SKILLS variable remains a fallback for existing deployments.
+_LEGACY_VECTOR_SKILLS = _env_bool("PENGUARD_VECTOR_SKILLS", True)
+VECTOR_SKILLS_ENABLED = _env_bool("PENGUARD_VECTOR_SKILLS_ENABLED", _LEGACY_VECTOR_SKILLS)
 VECTOR_SKILLS_DIR = _env("PENGUARD_VECTOR_SKILLS_DIR") or "skills/vectors"
 
 # ── Integrations ────────────────────────────────────────────────────────────

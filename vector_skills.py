@@ -1,9 +1,10 @@
 """Validated Markdown vector skills.
 
-Skills are declarative metadata for the eight canonical vectors. They are
-validated against the deterministic fallback contracts (golden tests) and only
-consulted when ``PENGUARD_VECTOR_SKILLS=1``. Off by default: the fixed
-LangGraph pipeline remains the source of truth.
+Skills are declarative metadata for the eight canonical vectors. They mirror
+the deterministic fallback contracts (golden tests) and enrich both LLM prompts
+and heuristic execution metadata. The fixed LangGraph pipeline remains the
+source of truth; skills are additive guidance, enabled by default and
+disable-able with ``PENGUARD_VECTOR_SKILLS_ENABLED=false``.
 
 Skill files are Markdown with a small YAML-like front matter block. Parsing is
 intentionally dependency-free and strict; malformed skills are rejected rather
@@ -141,11 +142,62 @@ def validate_or_warn(directory: Optional[str] = None) -> List[str]:
         validate_skills(skills)
     except Exception as exc:
         if config.VECTOR_SKILLS_ENABLED:
-            raise RuntimeError(f"PENGUARD_VECTOR_SKILLS is enabled but invalid: {exc}") from exc
+            raise RuntimeError(
+                f"PENGUARD_VECTOR_SKILLS_ENABLED is enabled but invalid: {exc}"
+            ) from exc
         return [f"vector skills not loaded ({exc}); deterministic fallbacks remain active"]
     if not config.VECTOR_SKILLS_ENABLED:
-        return [f"vector skills validated ({len(skills)}/8) but disabled (PENGUARD_VECTOR_SKILLS=0)"]
+        return [f"vector skills validated ({len(skills)}/8) but disabled (PENGUARD_VECTOR_SKILLS_ENABLED=false)"]
     return []
+
+
+def _tactics(raw: Any) -> List[str]:
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return []
+
+
+def skill_playbook(skill: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return stable, additive playbook metadata for prompts and evidence."""
+    if not skill:
+        return None
+    key = normalize_scenario(str(skill.get("key") or ""))
+    return {
+        "skill_id": skill.get("skill_id") or f"penguard-{key or 'unknown'}-v1",
+        "label": skill.get("label"),
+        "source_file": skill.get("_file"),
+        "tactics_applied": _tactics(skill.get("tactics_applied")),
+        "verification_rule": skill.get("verification_rule") or f"verify: {skill.get('hypothesis', '')}".strip(),
+        "baseline_rule": skill.get("baseline_rule"),
+        "exploit_rule": skill.get("exploit_rule"),
+        "owasp": skill.get("owasp"),
+        "hypothesis": skill.get("hypothesis"),
+        "hardening_rule": skill.get("hardening_rule"),
+    }
+
+
+def skill_prompt_context(skill: Optional[Dict[str, Any]]) -> str:
+    """Render a compact playbook block for LLM system prompts."""
+    playbook = skill_playbook(skill)
+    if not playbook:
+        return ""
+    parts = [
+        f"Active vector skill: {playbook['skill_id']} ({playbook.get('label') or playbook['skill_id']}).",
+        f"Tactics: {', '.join(playbook['tactics_applied']) or 'probe, detect, harden, retest'}.",
+        f"Verification rule: {playbook['verification_rule']}.",
+    ]
+    if playbook.get("baseline_rule"):
+        parts.append(f"Baseline rule: {playbook['baseline_rule']}.")
+    if playbook.get("exploit_rule"):
+        parts.append(f"Exploit rule: {playbook['exploit_rule']}.")
+    if skill and skill.get("baseline_endpoint"):
+        parts.append(
+            f"Benign baseline probe: {skill.get('baseline_method') or skill.get('method') or 'GET'} "
+            f"{skill['baseline_endpoint']}."
+        )
+    return " ".join(parts)
 
 
 def skill_for(scenario: str, directory: Optional[str] = None) -> Optional[Dict[str, Any]]:

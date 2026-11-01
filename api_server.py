@@ -138,6 +138,14 @@ def _load_episodes() -> List[Dict[str, Any]]:
                     "http_method": getattr(r, "http_method", None),
                     "confidence": getattr(r, "confidence", None),
                     "evidence": r.evidence,
+                    "skill_playbook": (
+                        (r.evidence or {}).get("skill_playbook")
+                        if isinstance(r.evidence, dict) else None
+                    ),
+                    "remediation_metadata": (
+                        (r.evidence or {}).get("remediation")
+                        if isinstance(r.evidence, dict) else None
+                    ),
                 })
             if result:
                 print(f"[store] loaded {len(result)} episodes from DB")
@@ -348,12 +356,20 @@ def _build_explainability(result: Dict[str, Any]) -> Dict[str, Any]:
     """Blue-agent decision transparency: confidence (+source) and rationale."""
     dr = result.get("detection_report") or {}
     hp = result.get("hardening_plan") or {}
-    return {
+    out = {
         "confidence": dr.get("confidence_score"),
         "confidence_source": dr.get("confidence_source", "heuristic-fallback"),
         "rule": hp.get("target_rule_name"),
         "rationale": result.get("remediation") or "",
     }
+    # Additive only when present: the legacy exact-shape contract stays intact.
+    skill = result.get("skill_playbook") or (result.get("attack_plan") or {}).get("skill_playbook")
+    if skill:
+        out["skill_playbook"] = skill
+    remediation = result.get("remediation_metadata")
+    if remediation:
+        out["ast_remediation"] = remediation
+    return out
 
 
 def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List[str]:
@@ -367,6 +383,11 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
     if result.get("attack_plan"):
         ap = result["attack_plan"]
         logs.append(f"[exploit] {ap.get('http_method')} {ap.get('target_endpoint')} payload={ap.get('payload_json') or '—'}")
+    if result.get("skill_playbook"):
+        sp = result["skill_playbook"]
+        logs.append(f"[skill] {sp.get('skill_id')} tactics={','.join(sp.get('tactics_applied') or [])} verify={sp.get('verification_rule')}")
+    if result.get("baseline_status") is not None:
+        logs.append(f"[baseline] status={result.get('baseline_status')} body={str(result.get('baseline_response_body'))[:180]}")
     if result.get("http_status") is not None:
         logs.append(f"[probe] initial status={result.get('http_status')} body={str(result.get('response_body'))[:240]}")
     if result.get("detection_report"):
@@ -376,6 +397,10 @@ def _build_logs(result: Dict[str, Any], base_url: str, duration_ms: int) -> List
         hp = result["hardening_plan"]
         logs.append(f"[hardening] rule={hp.get('target_rule_name')} action={hp.get('mitigation_action')}")
     logs.append(f"[patch] applied={result.get('patch_applied')} retest_status={result.get('retest_status')}")
+    if result.get("remediation_metadata"):
+        rm = result["remediation_metadata"]
+        logs.append(f"[ast] engine={rm.get('engine')} verified={rm.get('ast_verified')} "
+                    f"function={rm.get('function')} nodes={','.join(rm.get('transformed_nodes') or [])}")
     if result.get("reflection_attempts"):
         logs.append(f"[reflection] attempts={result.get('reflection_attempts')} feedback={str(result.get('reflection_feedback'))[:180]}")
     if result.get("pr_verdict_url"):
@@ -1027,13 +1052,26 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "target_url": base_url,
             "past_memory": "",
             "attack_plan": None,
+            "skill_playbook": None,
             "http_status": None,
             "response_body": None,
+            "response_headers": None,
+            "request_headers": None,
+            "probe_latency_ms": None,
+            "baseline_request": None,
+            "baseline_status": None,
+            "baseline_response_body": None,
+            "baseline_response_headers": None,
+            "baseline_latency_ms": None,
             "threat_detected": None,
             "vulnerability_type": None,
             "remediation": None,
+            "remediation_metadata": None,
             "patch_applied": False,
             "retest_status": None,
+            "retest_response_body": None,
+            "retest_response_headers": None,
+            "retest_latency_ms": None,
             "posture_score": None
         }
 
@@ -1110,6 +1148,9 @@ async def _execute_episode(ep_id: str, scenario_norm: str, custom_target: Option
             "reflection_attempts": result.get("reflection_attempts", 0),
             "inference_metrics": result.get("inference_metrics"),
             "explainability": _build_explainability(result),
+            "skill_playbook": result.get("skill_playbook") or (result.get("attack_plan") or {}).get("skill_playbook"),
+            "remediation_metadata": result.get("remediation_metadata"),
+            "baseline_status": result.get("baseline_status"),
             "outcome": outcome,
             "confidence": (result.get("detection_report") or {}).get("confidence_score"),
             "evidence": evidence,
@@ -1320,7 +1361,7 @@ async def approve_episode(episode_id: str):
     pr_url = rec.get("pr_url") or ""
     m = re.search(r"/pull/(\d+)", pr_url) if pr_url.startswith("http") else None
     if not m:
-        raise HTTPException(status_code=409, detail="Episode has no GitHub PR attached (only XSS produces real PRs)")
+        raise HTTPException(status_code=409, detail="Episode has no GitHub PR attached (PR creation requires GITHUB_TOKEN / GITHUB_TARGET_REPO)")
     pr_number = int(m.group(1))
     token = os.getenv("GITHUB_TOKEN", "").strip()
     repo_name = os.getenv("GITHUB_TARGET_REPO", "").strip()

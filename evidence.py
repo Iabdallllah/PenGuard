@@ -128,6 +128,101 @@ def _reproduction(method: str, url: str, payload: str) -> str:
     return f"curl -X {method.upper() or 'GET'} {safe_url}"
 
 
+def _as_status(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _response_delta(
+    baseline_status: Optional[int],
+    baseline_body: Optional[str],
+    exploit_status: Optional[int],
+    exploit_body: Optional[str],
+) -> str:
+    if baseline_status is None or exploit_status is None:
+        return "not_observable"
+    if baseline_status != exploit_status:
+        return "status_changed"
+    if body_sha256(baseline_body) != body_sha256(exploit_body):
+        return "body_changed"
+    return "none"
+
+
+def _differential_analysis(state: Dict[str, Any], detection: Dict[str, Any]) -> Dict[str, Any]:
+    """Compare benign baseline, exploit, and post-patch re-test probes.
+
+    Causality is only asserted when the exploit produced a byte-level response
+    delta against a successful benign baseline. Identical responses are
+    reported as unconfirmed — never as a fabricated zero-false-positive claim.
+    """
+    baseline_status = _as_status(state.get("baseline_status"))
+    exploit_status = _as_status(state.get("http_status"))
+    retest_status = _as_status(state.get("retest_status"))
+    baseline_body = str(state.get("baseline_response_body") or "")
+    exploit_body = str(state.get("response_body") or "")
+    retest_body = str(state.get("retest_response_body") or "")
+
+    baseline_to_exploit = _response_delta(
+        baseline_status, baseline_body, exploit_status, exploit_body
+    )
+    if retest_status is None:
+        exploit_to_retest = "not_retested"
+    elif retest_status in (400, 401, 403) and exploit_status not in (400, 401, 403):
+        exploit_to_retest = "blocked"
+    elif (
+        retest_status == exploit_status
+        and body_sha256(retest_body) == body_sha256(exploit_body)
+    ):
+        exploit_to_retest = "unchanged"
+    else:
+        exploit_to_retest = "changed"
+
+    baseline_valid = baseline_status is not None and 200 <= baseline_status < 300
+    exploit_reached = exploit_status is not None and 200 <= exploit_status < 300
+    observed_delta = baseline_to_exploit in ("status_changed", "body_changed")
+    causality_confirmed = bool(
+        detection.get("threat_detected") and baseline_valid and exploit_reached and observed_delta
+    )
+    retest_blocked = retest_status in (400, 401, 403)
+
+    if baseline_status is None or exploit_status is None:
+        interpretation = (
+            "Baseline or exploit probe is missing; causality cannot be established."
+        )
+    elif causality_confirmed:
+        interpretation = (
+            "Exploit-only behavior delta observed against a successful benign baseline; "
+            "responses differ deterministically (status or SHA-256 body hash)."
+        )
+        if retest_blocked:
+            interpretation += f" Post-patch re-test was blocked with HTTP {retest_status}."
+        elif retest_status is not None:
+            interpretation += f" Post-patch re-test returned HTTP {retest_status} (not blocked)."
+    else:
+        interpretation = (
+            "Baseline and exploit responses are indistinguishable or the baseline was "
+            "not successful; causality is unconfirmed and no zero-false-positive claim is made."
+        )
+
+    return {
+        "baseline_status": baseline_status,
+        "exploit_status": exploit_status,
+        "retest_status": retest_status,
+        "behavior_delta": baseline_to_exploit,
+        "exploit_to_retest": exploit_to_retest,
+        "causality_confirmed": causality_confirmed,
+        "zero_false_positive": causality_confirmed,
+        "false_positive_risk": "low" if causality_confirmed else "unconfirmed",
+        "mitigation_verified": bool(causality_confirmed and retest_blocked),
+        "baseline_response_sha256": body_sha256(baseline_body),
+        "exploit_response_sha256": body_sha256(exploit_body),
+        "retest_response_sha256": body_sha256(retest_body) if retest_status is not None else None,
+        "interpretation": interpretation,
+    }
+
+
 def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
     """Build the persisted evidence pack from one pipeline state/record."""
     attack_plan = state.get("attack_plan") or {}
@@ -146,6 +241,14 @@ def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
     retest_status = state.get("retest_status")
     retest_body = state.get("retest_response_body")
     retest_headers = state.get("retest_response_headers")
+    retest_latency = state.get("retest_latency_ms")
+    baseline_request = state.get("baseline_request") or {}
+    baseline_status = state.get("baseline_status")
+    baseline_body = str(state.get("baseline_response_body") or "")
+    baseline_headers = state.get("baseline_response_headers")
+    baseline_latency = state.get("baseline_latency_ms")
+    skill_playbook = state.get("skill_playbook") or attack_plan.get("skill_playbook")
+    remediation_metadata = state.get("remediation_metadata")
 
     evidence: Dict[str, Any] = {
         "schema_version": 1,
@@ -164,6 +267,27 @@ def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
             "body_length": len(body),
             "latency_ms": latency,
         },
+        "baseline": {
+            "request": {
+                "method": str(baseline_request.get("http_method") or "GET").upper(),
+                "url": redact_url(str(baseline_request.get("target_endpoint") or "")),
+                "payload": redact_text(baseline_request.get("payload_json") or "", limit=2000),
+            },
+            "status": baseline_status,
+            "headers": redact_headers(
+                baseline_headers if isinstance(baseline_headers, dict) else {}
+            ),
+            "body_excerpt": redact_text(baseline_body, limit=BODY_EXCERPT_CHARS),
+            "body_sha256": body_sha256(baseline_body) if baseline_status is not None else None,
+            "body_length": len(baseline_body),
+            "latency_ms": baseline_latency,
+            "outcome": (
+                "control"
+                if isinstance(baseline_status, int) and 200 <= baseline_status < 300
+                else "baseline_failed"
+            ),
+        },
+        "differential_analysis": _differential_analysis(state, detection),
         "confidence": confidence,
         "confidence_source": detection.get("confidence_source") or "unknown",
         "confidence_rationale": detection_text or "No detection rationale was recorded.",
@@ -198,9 +322,15 @@ def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
             "headers": redact_headers(retest_headers if isinstance(retest_headers, dict) else {}),
             "body_excerpt": redact_text(retest_body_text, limit=BODY_EXCERPT_CHARS),
             "body_sha256": body_sha256(retest_body_text),
+            "body_length": len(retest_body_text),
+            "latency_ms": retest_latency,
             "outcome": "blocked" if retest_status in (400, 401, 403) else "not_blocked",
             "patch_applied": bool(state.get("patch_applied")),
         }
+    if skill_playbook:
+        evidence["skill_playbook"] = skill_playbook
+    if remediation_metadata:
+        evidence["remediation"] = remediation_metadata
     return evidence
 
 

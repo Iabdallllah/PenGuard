@@ -42,7 +42,7 @@ corresponding command/test has actually run.
 - [x] Token/cost limits where measurable (token cap + measured-cost cap, `BudgetExceeded` before LLM calls).
 - [x] Centralized configuration (orchestrator reads `config` module, not raw env).
 - [x] Target-scope/SSRF validation with explicit lab override.
-- [x] Markdown vector skills with golden fallback tests and startup validation (off by default; `PENGUARD_VECTOR_SKILLS=1` fails closed when invalid).
+- [x] Markdown vector skills with golden fallback tests and startup validation (active by default; `PENGUARD_VECTOR_SKILLS_ENABLED=false` disables; fail-closed when enabled and invalid).
 
 ## Phase 5 — Hygiene, dashboard, SARIF, BFF routing (2026-10-31)
 
@@ -70,9 +70,28 @@ corresponding command/test has actually run.
       `mitigated` with complete evidence, and the inspector rendered the outcome badge and
       evidence artifact with no browser console errors.
 
+## Phase 6 — Strix-inspired gaps (2026-11-01)
+
+- [x] Real Python AST remediation engine for all eight vectors (`ast.parse` → node inspection
+      transformation → `ast.unparse`), with `ast.parse` validation and safe non-Python/no-op
+      fallbacks.
+- [x] Remediation metadata (`ast_verified`, `transformed_nodes`, `patch_sha256`, fallback reason)
+      persisted in episode `remediation_metadata` and `evidence.remediation`.
+- [x] Vector skills active by default (`PENGUARD_VECTOR_SKILLS_ENABLED=false` disables); playbooks
+      carry `skill_id`, `tactics_applied`, `verification_rule`, and baseline/exploit rules.
+- [x] Skill playbooks enrich LLM prompts and deterministic plans; `skill_playbook` is exposed in
+      explainability and evidence and rendered in the dashboard inspector.
+- [x] Benign baseline probe captured alongside exploit and re-test probes, with
+      `evidence.differential_analysis` (`baseline_status`, `exploit_status`, `retest_status`,
+      `behavior_delta`, hashes, causality, false-positive risk, mitigation verification).
+- [x] Differential honesty: identical baseline/exploit responses are marked unconfirmed, never
+      claimed as zero false positives.
+- [x] Dashboard inspector renders differential results, playbook tactics/verification, and AST
+      remediation metadata.
+
 ## Validation gates
 
-- [x] `pytest tests/ -q` — 110 passed, 2 warnings (includes Phase 4 + completion suites).
+- [x] `pytest tests/ -q` — 131 passed, 2 warnings (includes Phase 4, completion, and Strix suites).
 - [x] `ruff check .` — all checks passed across the entire repo.
 - [x] Dashboard `npm run build` — passed; `ƒ /api/proxy/[...path]` route compiled.
 - [x] Old-schema migration test (old ledger loaded; new columns present)
